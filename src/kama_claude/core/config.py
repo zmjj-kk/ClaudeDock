@@ -17,6 +17,7 @@ _DEFAULT_CONFIG_PATH = "~/.kama/config.toml"
 _DEFAULT_MAX_STEPS = 20
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_TRACE_FILE = "~/.kama/traces/daemon.jsonl"
+_DEFAULT_RAG_KNOWLEDGE_DIR = "~/.kama/knowledge"
 
 
 @dataclass
@@ -73,6 +74,15 @@ class McpConfig:
 
 
 @dataclass
+class RagConfig:
+    enabled: bool = False              # 是否注册 rag_search 工具（false 时完全不加载知识库）
+    knowledge_dir: str = _DEFAULT_RAG_KNOWLEDGE_DIR  # 知识库根目录，递归读取 .md/.txt
+    top_k: int = 3                     # 每次检索返回的 chunk 数
+    chunk_size: int = 800              # 分块字符数
+    chunk_overlap: int = 100           # 相邻块重叠字符数
+
+
+@dataclass
 class KamaConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -83,6 +93,7 @@ class KamaConfig:
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
+    rag: RagConfig = field(default_factory=RagConfig)
 
 
 # 构建并返回运行时配置：默认值 → 全局 TOML → 项目本地 TOML → .env → 系统环境变量（后者优先级最高）
@@ -117,7 +128,10 @@ def get_config() -> KamaConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp"}
+    unknown = set(data.keys()) - {
+        "core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp",
+        "rag",
+    }
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -290,6 +304,41 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                 s.port = val
             config.mcp.servers.append(s)
 
+    if "rag" in data:
+        rag = data["rag"]
+        if not isinstance(rag, dict):
+            raise SystemExit("Config error: [rag] must be a table")
+        unknown_rag: set[str] = set(rag.keys()) - {
+            "enabled", "knowledge_dir", "top_k", "chunk_size", "chunk_overlap",
+        }
+        if unknown_rag:
+            raise SystemExit(f"Unknown [rag] keys: {', '.join(sorted(unknown_rag))}")
+        if "enabled" in rag:
+            val = rag["enabled"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: rag.enabled must be a boolean")
+            config.rag.enabled = val
+        if "knowledge_dir" in rag:
+            val = rag["knowledge_dir"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.knowledge_dir must be a string")
+            config.rag.knowledge_dir = val
+        if "top_k" in rag:
+            val = rag["top_k"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: rag.top_k must be a positive integer")
+            config.rag.top_k = val
+        if "chunk_size" in rag:
+            val = rag["chunk_size"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: rag.chunk_size must be a positive integer")
+            config.rag.chunk_size = val
+        if "chunk_overlap" in rag:
+            val = rag["chunk_overlap"]
+            if not isinstance(val, int) or val < 0:
+                raise SystemExit("Config error: rag.chunk_overlap must be a non-negative integer")
+            config.rag.chunk_overlap = val
+
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: KamaConfig) -> None:
@@ -401,4 +450,58 @@ def _apply_env(config: KamaConfig) -> None:
         except ValueError:
             raise SystemExit(
                 f"Config error: KAMA_COMPACT_TOOL_KEEP must be an integer, got: {compact_tool_keep!r}"
+            )
+
+    rag_enabled = os.environ.get("KAMA_RAG_ENABLED")
+    if rag_enabled is not None:
+        config.rag.enabled = rag_enabled.lower() not in ("0", "false", "no")
+
+    rag_knowledge_dir = os.environ.get("KAMA_RAG_KNOWLEDGE_DIR")
+    if rag_knowledge_dir is not None:
+        config.rag.knowledge_dir = rag_knowledge_dir
+
+    rag_top_k = os.environ.get("KAMA_RAG_TOP_K")
+    if rag_top_k is not None:
+        try:
+            rag_top_k_val = int(rag_top_k)
+            if rag_top_k_val <= 0:
+                raise SystemExit(
+                    f"Config error: KAMA_RAG_TOP_K must be a positive integer, got: {rag_top_k!r}"
+                )
+            config.rag.top_k = rag_top_k_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: KAMA_RAG_TOP_K must be an integer, got: {rag_top_k!r}"
+            )
+
+    rag_chunk_size = os.environ.get("KAMA_RAG_CHUNK_SIZE")
+    if rag_chunk_size is not None:
+        try:
+            rag_chunk_size_val = int(rag_chunk_size)
+            if rag_chunk_size_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_CHUNK_SIZE must be a positive integer, "
+                    f"got: {rag_chunk_size!r}"
+                )
+            config.rag.chunk_size = rag_chunk_size_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_CHUNK_SIZE must be an integer, "
+                f"got: {rag_chunk_size!r}"
+            )
+
+    rag_chunk_overlap = os.environ.get("KAMA_RAG_CHUNK_OVERLAP")
+    if rag_chunk_overlap is not None:
+        try:
+            rag_chunk_overlap_val = int(rag_chunk_overlap)
+            if rag_chunk_overlap_val < 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_CHUNK_OVERLAP must be a non-negative integer, "
+                    f"got: {rag_chunk_overlap!r}"
+                )
+            config.rag.chunk_overlap = rag_chunk_overlap_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_CHUNK_OVERLAP must be an integer, "
+                f"got: {rag_chunk_overlap!r}"
             )

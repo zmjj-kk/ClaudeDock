@@ -18,6 +18,8 @@ from kama_claude.core.loop import AgentLoop
 from kama_claude.core.mcp.server import McpServerManager
 from kama_claude.core.memory.loader import load_context_file
 from kama_claude.core.permissions.manager import PermissionManager
+from kama_claude.core.rag.store import RagStore
+from kama_claude.core.rag.tool import RagSearchTool
 from kama_claude.core.runs import RUNS_DIR, new_run_id
 from kama_claude.core.session.model import Session
 from kama_claude.core.session.store import SessionStore
@@ -75,6 +77,8 @@ class AgentRunner:
         self._mcp_manager = mcp_manager
         # 跨 run 共享的后台 subagent 任务注册表
         self._task_registry = BackgroundTaskRegistry()
+        # RAG 知识库索引，惰性构建并跨 run 复用
+        self._rag_store: RagStore | None = None
 
     # 构建工具注册表，注入 TaskManager（任务工具共享同一实例）；可选注入 SpawnAgentTool
     def _build_registry(
@@ -111,6 +115,8 @@ class AgentRunner:
             note_tool = NoteSaveTool(store, session.id, run_id)
             if _ok(note_tool.name):
                 registry.register(note_tool)
+        if self._config.rag.enabled and _ok("rag_search"):
+            registry.register(RagSearchTool(self._get_rag_store(), self._config.rag.top_k))
         if provider is not None and bus is not None and run_id is not None:
             runs_dir = child_runs_dir or self._runs_dir
             if _ok("spawn_agent"):
@@ -134,6 +140,18 @@ class AgentRunner:
                 if _ok(mcp_tool.name):
                     registry.register(mcp_tool)
         return registry
+
+    # 惰性构建并缓存 RagStore；首次调用时加载知识库目录并建索引
+    def _get_rag_store(self) -> RagStore:
+        store = self._rag_store
+        if store is None:
+            store = RagStore(
+                chunk_size=self._config.rag.chunk_size,
+                chunk_overlap=self._config.rag.chunk_overlap,
+            )
+            store.load_dir(Path(self._config.rag.knowledge_dir).expanduser())
+            self._rag_store = store
+        return store
 
     # 执行一次完整的 agent run（委托给 run_and_capture，忽略返回值）
     async def run(self, goal: str, *, run_id: str | None = None) -> None:
