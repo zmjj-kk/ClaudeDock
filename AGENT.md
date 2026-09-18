@@ -64,7 +64,7 @@ All IPC messages are typed pydantic v2 models with a **discriminated union on th
 
 ### Config (`src/kama_claude/core/config.py`)
 
-Four-tier priority: **built-in defaults → `~/.kama/config.toml` → `.env` → env vars**.
+Five-tier priority: **built-in defaults → global `~/.kama/config.toml` → project-local `.kama/config.toml` → `.env` → env vars**.
 
 S0 keys: `host` (default `127.0.0.1`), `port` (default `7437`), `log_level`, `log_file`. Config file is silently skipped if absent; unknown keys cause a hard exit.
 

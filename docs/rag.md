@@ -161,7 +161,7 @@ def _tokenize(text: str) -> list[str]:
 
 ## 5. 配置
 
-新增 `RagConfig`，并入 `KamaConfig.rag`，沿用项目四层优先级（默认 → TOML → `.env` → 环境变量）。
+新增 `RagConfig`，并入 `KamaConfig.rag`，沿用项目五层优先级（默认 → 全局 TOML → 项目本地 TOML → `.env` → 环境变量）。
 
 ```python
 @dataclass
@@ -233,7 +233,7 @@ Agent: [调用 rag_search(query="配置优先级 config 优先级")]
 
 ToolResult:
 [1] /home/user/.kama/knowledge/kama_config.md
-四层优先级：built-in defaults → ~/.kama/config.toml → .env → env vars。
+五层优先级：built-in defaults → 全局 ~/.kama/config.toml → 项目本地 .kama/config.toml → .env → env vars。
 未知 key 会导致 SystemExit。
 ...
 
