@@ -16,6 +16,8 @@ class ReadFileParams(BaseModel):
 
 class ReadFileTool(BaseTool):
     params_model = ReadFileParams
+    # 只读工具：runtime_error（如瞬时文件缺失）可安全重试，不会产生副作用
+    retryable_errors = frozenset({"rate_limited", "runtime_error"})
     name = "read_file"
     description = (
         "Read the text content of a file. "

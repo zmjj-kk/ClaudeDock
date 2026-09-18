@@ -296,6 +296,8 @@ class AgentResultTool(BaseTool):
         "required": ["run_id"],
     }
     params_model = AgentResultParams
+    # 只读工具：runtime_error（如后台任务尚未就绪）可安全重试，不会产生副作用
+    retryable_errors = frozenset({"rate_limited", "runtime_error"})
 
     # 初始化，持有共享的后台任务注册表
     def __init__(self, task_registry: BackgroundTaskRegistry) -> None:

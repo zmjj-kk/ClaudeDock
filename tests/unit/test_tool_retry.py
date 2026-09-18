@@ -17,6 +17,8 @@ class _FailNTimes(BaseTool):
     name = "fail_n"
     description = "Fails n times then succeeds"
     input_schema: dict[str, object] = {"type": "object", "properties": {}, "required": []}
+    # 声明 runtime_error 可重试，用于验证重试机制本身
+    retryable_errors = frozenset({"runtime_error", "rate_limited"})
 
     def __init__(self, n: int, *, error_type: str = "runtime_error") -> None:
         self._remaining = n
@@ -49,6 +51,8 @@ class _AlwaysFails(BaseTool):
     name = "always_fail"
     description = "Always fails"
     input_schema: dict[str, object] = {"type": "object", "properties": {}, "required": []}
+    # 声明 runtime_error 可重试，用于验证重试次数上限
+    retryable_errors = frozenset({"runtime_error", "rate_limited"})
 
     def __init__(self, error_type: str = "runtime_error") -> None:
         self._error_type = error_type

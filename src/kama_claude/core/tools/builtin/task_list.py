@@ -15,6 +15,8 @@ class TaskListTool(BaseTool):
         "properties": {},
         "required": [],
     }
+    # 只读工具：runtime_error 可安全重试，不会产生副作用
+    retryable_errors = frozenset({"rate_limited", "runtime_error"})
 
     # 持有 TaskManager 实例，供 invoke 调用
     def __init__(self, task_manager: TaskManager) -> None:

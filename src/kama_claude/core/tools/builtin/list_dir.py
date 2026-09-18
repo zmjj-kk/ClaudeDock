@@ -18,6 +18,8 @@ class ListDirParams(BaseModel):
 
 class ListDirTool(BaseTool):
     params_model = ListDirParams
+    # 只读工具：runtime_error（如瞬时文件缺失）可安全重试，不会产生副作用
+    retryable_errors = frozenset({"rate_limited", "runtime_error"})
     name = "list_dir"
     description = (
         "List the contents of a directory as a tree. "

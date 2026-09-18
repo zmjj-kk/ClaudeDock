@@ -17,7 +17,7 @@ from kama_claude.core.bus.events import (
 )
 from kama_claude.core.events.bus import EventBus
 from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.tools.base import ToolResult
+from kama_claude.core.tools.base import BaseTool, ToolResult
 from kama_claude.core.tools.errors import RateLimitedError
 from kama_claude.core.tools.registry import ToolRegistry
 
@@ -28,6 +28,11 @@ _DEFAULT_TIMEOUT: float = 120.0
 _MAX_RETRIES: int = 2
 _RETRY_BASE_S: float = 2.0  # backoff base; tests can monkeypatch to 0
 _RETRYABLE: frozenset[str] = frozenset({"runtime_error", "rate_limited"})
+
+
+# 判断 error_class 是否应重试：须属于可重试全集，且该工具声明此类错误可安全重试
+def _should_retry(error_class: str, tool: BaseTool) -> bool:
+    return error_class in _RETRYABLE and error_class in tool.retryable_errors
 
 
 def _now() -> str:
@@ -183,7 +188,7 @@ async def invoke_tool(
         assert error_class is not None and error_message is not None
         ms = elapsed()
 
-        if error_class in _RETRYABLE and attempt <= _MAX_RETRIES:
+        if _should_retry(error_class, tool) and attempt <= _MAX_RETRIES:
             await bus.publish(
                 ToolCallFailedEvent(
                     run_id=run_id,
