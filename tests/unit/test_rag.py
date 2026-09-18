@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from kama_claude.core.rag.store import RagStore, _split_chunks, _tokenize
+import httpx
+
+from kama_claude.core.rag.chunk import _split_chunks, split_semantic
+from kama_claude.core.rag.index import Bm25Index, HybridIndex, ZhipuEmbeddingIndex, _tokenize
+from kama_claude.core.rag.store import RagStore
 from kama_claude.core.rag.tool import RagSearchTool
 
 
@@ -38,9 +43,32 @@ def test_split_chunks_short_and_empty() -> None:
     assert _split_chunks("   ", 4, 2) == []
 
 
+# 功能：验证语义切片把标题与紧随的短段落合并进同一块
+# 设计：标题与段落各远小于 size，断言边界落在标题/段落之间而非硬切中间
+def test_split_semantic_heading_merges_paragraph() -> None:
+    chunks = split_semantic("# 部署\n\n运行 kama-core。", size=100, overlap=0)
+    assert chunks == ["# 部署\n运行 kama-core。"]
+
+
+# 功能：验证超长段落按句末标点切分，而非在句子中间硬切
+# 设计：两句各 7 字符，size=10 只够装一句，断言产出两个完整句子块
+def test_split_semantic_sentence_boundary() -> None:
+    chunks = split_semantic("这是第一句话。这是第二句话。", size=10, overlap=0)
+    assert chunks == ["这是第一句话。", "这是第二句话。"]
+
+
+# 功能：验证代码块内的标点/空格不触发句子切分，整体作为一个单元
+# 设计：含小数（"1.5"）的代码块在 size 足够时保持整块，排除按句号误拆
+def test_split_semantic_code_not_sentence_split() -> None:
+    text = "```\nx = 1.5\ny = 2.5\n```"
+    chunks = split_semantic(text, size=1000, overlap=0)
+    assert len(chunks) == 1
+    assert "1.5" in chunks[0] and "2.5" in chunks[0]
+
+
 # 功能：验证 load_dir 能递归读取 .md/.txt 建索引，search 命中主题最相关的文档
 # 设计：临时目录写两个不同主题文档，检索其中一个主题的关键词，断言返回的 source 指向对应文件
-def test_store_load_and_search(tmp_path: Path) -> None:
+async def test_store_load_and_search(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text(
         "The quick brown fox jumps over the lazy dog.", encoding="utf-8"
     )
@@ -48,19 +76,55 @@ def test_store_load_and_search(tmp_path: Path) -> None:
         "Machine learning is a field of artificial intelligence.", encoding="utf-8"
     )
     store = RagStore(chunk_size=800, chunk_overlap=100)
-    n = store.load_dir(tmp_path)
+    n = await store.load_dir(tmp_path)
     assert n == 2
-    results = store.search("machine learning", top_k=1)
+    results = await store.search("machine learning", top_k=1)
     assert results
     assert results[0].source == str(tmp_path / "b.md")
 
 
 # 功能：验证空知识库目录下 load_dir 返回 0 且 search 返回空列表，不抛异常
 # 设计：指向空目录，断言索引为空、检索安全降级为空结果
-def test_store_empty_dir(tmp_path: Path) -> None:
+async def test_store_empty_dir(tmp_path: Path) -> None:
     store = RagStore()
-    assert store.load_dir(tmp_path) == 0
-    assert store.search("anything") == []
+    assert await store.load_dir(tmp_path) == 0
+    assert await store.search("anything") == []
+
+
+# 功能：验证 load_dir 增量更新：变更文档重切、删除文档自动丢弃、未变文档保持稳定
+# 设计：用等长改写（mtime 可能不变）验证内容 hash 而非时间戳作为变更依据，改一个删一个后断言最终 chunk 正确
+async def test_store_incremental_rebuild(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("# A\n\nalpha content", encoding="utf-8")
+    (tmp_path / "b.md").write_text("# B\n\nbeta content", encoding="utf-8")
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+
+    # 改 a（等长改写，验证内容 hash 检测）、删 b，再加载
+    (tmp_path / "a.md").write_text("# A\n\nalpha updated", encoding="utf-8")
+    (tmp_path / "b.md").unlink()
+    await store.load_dir(tmp_path)
+
+    sources = {c.source for c in store._chunks}
+    assert str(tmp_path / "b.md") not in sources
+    assert any("updated" in c.text for c in store._chunks)
+    for c in store._chunks:
+        assert c.doc_id and c.content_hash
+
+
+# 功能：验证内容未变（仅重写/touch）时复用旧 chunk，不产生重复切分或 hash 变化
+# 设计：重写相同内容后 reload，断言 chunk 文本与 content_hash 与首次加载完全一致
+async def test_store_touch_reuses_chunks(tmp_path: Path) -> None:
+    f = tmp_path / "a.md"
+    f.write_text("# A\n\nalpha content", encoding="utf-8")
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    first = [(c.text, c.content_hash) for c in store._chunks]
+
+    f.write_text("# A\n\nalpha content", encoding="utf-8")  # 同内容 → 应复用而非重切
+    await store.load_dir(tmp_path)
+    second = [(c.text, c.content_hash) for c in store._chunks]
+
+    assert first == second
 
 
 # 功能：验证 RagSearchTool.invoke 返回带来源路径的格式化文本，无匹配时给出友好提示
@@ -70,7 +134,7 @@ async def test_rag_search_tool_invoke(tmp_path: Path) -> None:
         "Deploy steps: build, test, release.", encoding="utf-8"
     )
     store = RagStore(chunk_size=800, chunk_overlap=100)
-    store.load_dir(tmp_path)
+    await store.load_dir(tmp_path)
     tool = RagSearchTool(store, default_top_k=3)
 
     result = await tool.invoke({"query": "deploy steps"})
@@ -82,3 +146,97 @@ async def test_rag_search_tool_invoke(tmp_path: Path) -> None:
         {"query": "nothing"}
     )
     assert "No matching chunks" in empty_result.content
+
+
+# 功能：验证 Zhipu 索引分批调用 API、按 index 排序、按余弦相似度命中
+# 设计：用 MockTransport 返回确定性向量（含 machine 的文本给 [1,0]，其余 [0,1]），
+# 以 batch_size=2 覆盖分批路径，断言 top-1 命中 machine 文档
+async def test_zhipu_index_embed_and_search() -> None:
+    calls: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        inputs = body["input"]
+        calls.append(inputs)
+        data = []
+        for idx, text in enumerate(inputs):
+            vec = [1.0, 0.0] if "machine" in text.lower() else [0.0, 1.0]
+            data.append({"object": "embedding", "index": idx, "embedding": vec})
+        return httpx.Response(200, json={"object": "list", "data": data, "model": "embedding-3"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    index = ZhipuEmbeddingIndex("k", batch_size=2, client=client)
+    await index.build(["machine learning notes", "cooking recipe", "deep learning"], "fp")
+    assert len(calls) == 2  # 3 条文本按 batch_size=2 分两批
+    scores = await index.search("machine learning", top_k=1)
+    assert scores == [(0, 1.0)]
+
+
+# 功能：验证向量缓存按 chunk 内容 hash 复用：内容未变不重复请求，仅新 chunk 触发请求
+# 设计：用 MockTransport 计数，同一内容二次构建不新增调用；换掉一个 chunk 后只补请求新 chunk
+async def test_zhipu_index_cache(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        body = json.loads(request.content)
+        data = [
+            {"object": "embedding", "index": i, "embedding": [1.0]}
+            for i in range(len(body["input"]))
+        ]
+        return httpx.Response(200, json={"object": "list", "data": data, "model": "embedding-3"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    cache_path = tmp_path / "cache.json"
+
+    index = ZhipuEmbeddingIndex("k", cache_path=cache_path, cache_enabled=True, client=client)
+    await index.build(["a", "b"], "fp1")
+    assert calls == 1
+
+    index2 = ZhipuEmbeddingIndex("k", cache_path=cache_path, cache_enabled=True, client=client)
+    await index2.build(["a", "b"], "fp1")
+    assert calls == 1  # 内容未变，命中缓存
+
+    index3 = ZhipuEmbeddingIndex("k", cache_path=cache_path, cache_enabled=True, client=client)
+    await index3.build(["a", "c"], "fp2")
+    assert calls == 2  # 仅 "c" 为新 chunk，只补一次请求
+
+
+# 功能：验证 Bm25Index 作为本地词法回退后端仍能检索
+# 设计：直接对 Bm25Index 建索引并检索，确认与 RagStore 解耦后行为不变
+async def test_bm25_index_search() -> None:
+    index = Bm25Index()
+    await index.build(["machine learning notes", "cooking recipe"], "fp")
+    scores = await index.search("machine learning", top_k=1)
+    assert len(scores) == 1
+    assert scores[0][0] == 0
+    assert scores[0][1] > 0.0
+
+
+# 功能：验证 HybridIndex 用 RRF 融合词法 + 语义，让两边命中的 chunk 都进入 top-k
+# 设计：词法只命中 "apple" 的文档、语义只命中 "vector" 的文档，断言 RRF 合并后两者都排在无关文档前，
+#       证明混合检索同时保留字面召回与语义泛化两条信号
+async def test_hybrid_index_rrf_fusion() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        data = []
+        for idx, text in enumerate(body["input"]):
+            vec = [1.0, 0.0] if "vector" in text.lower() else [0.0, 1.0]
+            data.append({"object": "embedding", "index": idx, "embedding": vec})
+        return httpx.Response(200, json={"object": "list", "data": data, "model": "embedding-3"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    dense = ZhipuEmbeddingIndex("k", client=client)
+    index = HybridIndex(Bm25Index(), dense, depth=10)
+
+    texts = [
+        "word2vec embeddings are dense vectors",   # 语义命中（含 vector）
+        "apple banana orange",                      # 词法命中（含 apple）
+        "completely unrelated topic",               # 两者都不命中
+    ]
+    await index.build(texts, "fp")
+    scores = await index.search("apple vector", top_k=2)
+    got = {i for i, _ in scores}
+    assert 0 in got and 1 in got
+    assert 2 not in got

@@ -18,6 +18,7 @@ from kama_claude.core.loop import AgentLoop
 from kama_claude.core.mcp.server import McpServerManager
 from kama_claude.core.memory.loader import load_context_file
 from kama_claude.core.permissions.manager import PermissionManager
+from kama_claude.core.rag.index import Bm25Index, HybridIndex, RagIndex, ZhipuEmbeddingIndex
 from kama_claude.core.rag.store import RagStore
 from kama_claude.core.rag.tool import RagSearchTool
 from kama_claude.core.runs import RUNS_DIR, new_run_id
@@ -81,7 +82,7 @@ class AgentRunner:
         self._rag_store: RagStore | None = None
 
     # 构建工具注册表，注入 TaskManager（任务工具共享同一实例）；可选注入 SpawnAgentTool
-    def _build_registry(
+    async def _build_registry(
         self,
         task_manager: TaskManager,
         *,
@@ -116,7 +117,7 @@ class AgentRunner:
             if _ok(note_tool.name):
                 registry.register(note_tool)
         if self._config.rag.enabled and _ok("rag_search"):
-            registry.register(RagSearchTool(self._get_rag_store(), self._config.rag.top_k))
+            registry.register(RagSearchTool(await self._get_rag_store(), self._config.rag.top_k))
         if provider is not None and bus is not None and run_id is not None:
             runs_dir = child_runs_dir or self._runs_dir
             if _ok("spawn_agent"):
@@ -142,14 +143,45 @@ class AgentRunner:
         return registry
 
     # 惰性构建并缓存 RagStore；首次调用时加载知识库目录并建索引
-    def _get_rag_store(self) -> RagStore:
+    async def _get_rag_store(self) -> RagStore:
         store = self._rag_store
         if store is None:
+            rag = self._config.rag
+
+            # 构建智谱 embedding 检索后端，供 hybrid / embedding 两种模式复用
+            def _dense() -> ZhipuEmbeddingIndex:
+                return ZhipuEmbeddingIndex(
+                    api_key=rag.api_key,
+                    model=rag.embedding_model,
+                    base_url=rag.embedding_base_url,
+                    dimensions=rag.embedding_dimensions,
+                    batch_size=rag.embedding_batch_size,
+                    cache_path=Path(rag.knowledge_dir).expanduser() / ".rag_index_cache.json",
+                    cache_enabled=rag.index_cache,
+                )
+
+            # 按 retriever 选后端；auto 时配了 key 走混合检索，否则纯 BM25 零依赖回退
+            if rag.retriever == "bm25":
+                index: RagIndex = Bm25Index()
+            elif rag.retriever == "embedding":
+                index = _dense()
+            elif rag.retriever == "hybrid":
+                index = HybridIndex(Bm25Index(), _dense())
+            elif rag.api_key:
+                index = HybridIndex(Bm25Index(), _dense())
+            else:
+                index = Bm25Index()
+
             store = RagStore(
-                chunk_size=self._config.rag.chunk_size,
-                chunk_overlap=self._config.rag.chunk_overlap,
+                chunk_size=rag.chunk_size,
+                chunk_overlap=rag.chunk_overlap,
+                index=index,
             )
-            store.load_dir(Path(self._config.rag.knowledge_dir).expanduser())
+            try:
+                await store.load_dir(Path(rag.knowledge_dir).expanduser())
+            except Exception:
+                # 建索引失败（如网络抖动）不应拖垮整个 run，降级为空知识库
+                logging.getLogger(__name__).exception("RAG index build failed")
             self._rag_store = store
         return store
 
@@ -221,7 +253,7 @@ class AgentRunner:
                     if session is not None and store is not None
                     else self._runs_dir
                 )
-                registry = self._build_registry(
+                registry = await self._build_registry(
                     task_manager,
                     session=session,
                     store=store,

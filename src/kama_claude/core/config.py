@@ -18,6 +18,7 @@ _DEFAULT_MAX_STEPS = 20
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_TRACE_FILE = "~/.kama/traces/daemon.jsonl"
 _DEFAULT_RAG_KNOWLEDGE_DIR = "~/.kama/knowledge"
+_RETRIEVER_CHOICES = ("auto", "bm25", "embedding", "hybrid")
 
 
 @dataclass
@@ -78,8 +79,15 @@ class RagConfig:
     enabled: bool = False              # 是否注册 rag_search 工具（false 时完全不加载知识库）
     knowledge_dir: str = _DEFAULT_RAG_KNOWLEDGE_DIR  # 知识库根目录，递归读取 .md/.txt
     top_k: int = 3                     # 每次检索返回的 chunk 数
-    chunk_size: int = 800              # 分块字符数
-    chunk_overlap: int = 100           # 相邻块重叠字符数
+    chunk_size: int = 800              # 语义切片的目标/上限字符数
+    chunk_overlap: int = 100           # 超长单元硬切回退时的重叠字符数
+    api_key: str = ""                  # 智谱 API key；留空则回退本地 TF-IDF
+    embedding_model: str = "embedding-3"  # 智谱 embedding 模型名
+    embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4"  # embedding API 根地址
+    embedding_dimensions: int = 2048   # 输出向量维度（256/512/1024/2048）
+    embedding_batch_size: int = 64     # 单次请求最大输入条数（≤64）
+    index_cache: bool = True           # 是否将向量落盘缓存，避免重启重复计费
+    retriever: str = "auto"            # 检索后端：auto/bm25/embedding/hybrid
 
 
 @dataclass
@@ -310,6 +318,8 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             raise SystemExit("Config error: [rag] must be a table")
         unknown_rag: set[str] = set(rag.keys()) - {
             "enabled", "knowledge_dir", "top_k", "chunk_size", "chunk_overlap",
+            "api_key", "embedding_model", "embedding_base_url", "embedding_dimensions",
+            "embedding_batch_size", "index_cache", "retriever",
         }
         if unknown_rag:
             raise SystemExit(f"Unknown [rag] keys: {', '.join(sorted(unknown_rag))}")
@@ -338,6 +348,48 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             if not isinstance(val, int) or val < 0:
                 raise SystemExit("Config error: rag.chunk_overlap must be a non-negative integer")
             config.rag.chunk_overlap = val
+        if "api_key" in rag:
+            val = rag["api_key"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.api_key must be a string")
+            config.rag.api_key = val
+        if "embedding_model" in rag:
+            val = rag["embedding_model"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.embedding_model must be a string")
+            config.rag.embedding_model = val
+        if "embedding_base_url" in rag:
+            val = rag["embedding_base_url"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.embedding_base_url must be a string")
+            config.rag.embedding_base_url = val
+        if "embedding_dimensions" in rag:
+            val = rag["embedding_dimensions"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: rag.embedding_dimensions must be a positive integer"
+                )
+            config.rag.embedding_dimensions = val
+        if "embedding_batch_size" in rag:
+            val = rag["embedding_batch_size"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: rag.embedding_batch_size must be a positive integer"
+                )
+            config.rag.embedding_batch_size = val
+        if "index_cache" in rag:
+            val = rag["index_cache"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: rag.index_cache must be a boolean")
+            config.rag.index_cache = val
+        if "retriever" in rag:
+            val = rag["retriever"]
+            if not isinstance(val, str) or val not in _RETRIEVER_CHOICES:
+                raise SystemExit(
+                    "Config error: rag.retriever must be one of "
+                    f"{list(_RETRIEVER_CHOICES)}, got: {val!r}"
+                )
+            config.rag.retriever = val
 
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
@@ -505,3 +557,60 @@ def _apply_env(config: KamaConfig) -> None:
                 "Config error: KAMA_RAG_CHUNK_OVERLAP must be an integer, "
                 f"got: {rag_chunk_overlap!r}"
             )
+
+    rag_api_key = os.environ.get("KAMA_RAG_API_KEY") or os.environ.get("ZHIPU_API_KEY")
+    if rag_api_key is not None:
+        config.rag.api_key = rag_api_key
+
+    rag_embedding_model = os.environ.get("KAMA_RAG_EMBEDDING_MODEL")
+    if rag_embedding_model is not None:
+        config.rag.embedding_model = rag_embedding_model
+
+    rag_embedding_base_url = os.environ.get("KAMA_RAG_EMBEDDING_BASE_URL")
+    if rag_embedding_base_url is not None:
+        config.rag.embedding_base_url = rag_embedding_base_url
+
+    rag_embedding_dimensions = os.environ.get("KAMA_RAG_EMBEDDING_DIMENSIONS")
+    if rag_embedding_dimensions is not None:
+        try:
+            rag_embedding_dimensions_val = int(rag_embedding_dimensions)
+            if rag_embedding_dimensions_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_EMBEDDING_DIMENSIONS must be a positive integer, "
+                    f"got: {rag_embedding_dimensions!r}"
+                )
+            config.rag.embedding_dimensions = rag_embedding_dimensions_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_EMBEDDING_DIMENSIONS must be an integer, "
+                f"got: {rag_embedding_dimensions!r}"
+            )
+
+    rag_embedding_batch_size = os.environ.get("KAMA_RAG_EMBEDDING_BATCH_SIZE")
+    if rag_embedding_batch_size is not None:
+        try:
+            rag_embedding_batch_size_val = int(rag_embedding_batch_size)
+            if rag_embedding_batch_size_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_EMBEDDING_BATCH_SIZE must be a positive integer, "
+                    f"got: {rag_embedding_batch_size!r}"
+                )
+            config.rag.embedding_batch_size = rag_embedding_batch_size_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_EMBEDDING_BATCH_SIZE must be an integer, "
+                f"got: {rag_embedding_batch_size!r}"
+            )
+
+    rag_index_cache = os.environ.get("KAMA_RAG_INDEX_CACHE")
+    if rag_index_cache is not None:
+        config.rag.index_cache = rag_index_cache.lower() not in ("0", "false", "no")
+
+    rag_retriever = os.environ.get("KAMA_RAG_RETRIEVER")
+    if rag_retriever is not None:
+        if rag_retriever not in _RETRIEVER_CHOICES:
+            raise SystemExit(
+                "Config error: KAMA_RAG_RETRIEVER must be one of "
+                f"{list(_RETRIEVER_CHOICES)}, got: {rag_retriever!r}"
+            )
+        config.rag.retriever = rag_retriever

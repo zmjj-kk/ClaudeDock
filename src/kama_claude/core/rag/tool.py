@@ -46,7 +46,7 @@ class RagSearchTool(BaseTool):
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = RagSearchParams.model_validate(params)
         top_k = p.top_k or self._default_top_k
-        chunks = self._store.search(p.query, top_k)
+        chunks = await self._store.search(p.query, top_k)
         if not chunks:
             return ToolResult(content="No matching chunks found in the knowledge base.")
         lines = [f"[{i}] {c.source}\n{c.text}" for i, c in enumerate(chunks, 1)]
