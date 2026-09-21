@@ -125,18 +125,15 @@ self._idf = {
 
 ## 4. 分块与分词
 
-### 4.1 分块（`_split_chunks`）
+### 4.1 分块（`split_semantic`）
 
-固定窗口滑动切块，相邻块带 `chunk_overlap` 重叠，避免语义在块边界被切断：
+按语义边界切片，避免在句子或段落中间切断语义。流程分三步：
 
-```python
-step = max(1, size - overlap)
-while start < len(text):
-    chunks.append(text[start:start + size])
-    start += step
-```
+1. **结构块**：逐行扫描，按标题（`#`）、围栏代码块、普通段落切分；代码块整体保留，不参与句子切分。
+2. **句切分**：超长段落按句末标点（`。！？. ! ?`）切句；标题、代码块与未超长段落直接作为一个单元。
+3. **贪心合并（带 overlap）**：相邻单元贪心合并，直到总长不超过 `chunk_size`；开启 `chunk_overlap` 时，每块携带上一块**尾部 `chunk_overlap` 个字符**作为上下文前缀（计入 `chunk_size` 预算），保证标题与后续段落落在同一块，同时让相邻块在边界处保留重叠上下文、避免语义被切断。
 
-默认 `chunk_size=800`、`chunk_overlap=100`，均可在配置里调。
+默认 `chunk_size=800`、`chunk_overlap=100`，均可在配置里调。overlap 同时作用于硬切回退（`_split_chunks`，超长代码块/标题/单句）与语义合并（`_merge_units`）两条路径。
 
 ### 4.2 分词（`_tokenize`）
 
@@ -187,6 +184,90 @@ chunk_overlap = 100
 **环境变量**：`KAMA_RAG_ENABLED`、`KAMA_RAG_KNOWLEDGE_DIR`、`KAMA_RAG_TOP_K`、`KAMA_RAG_CHUNK_SIZE`、`KAMA_RAG_CHUNK_OVERLAP`。布尔按 `0/false/no` 判定为假，其余为真；数值非法时 `SystemExit`，与既有 `_apply_env` 一致。
 
 `_apply_toml` 中新增 `[rag]` 段，未知 key、类型错误均硬退出，与其他段保持同一套校验风格。
+
+### 5.1 rerank 精排阶段（可选，默认关闭）
+
+检索默认是**单阶段**：`RagStore.search` → `index.search(query, top_k)` 直接返回 top_k（`HybridIndex` 内部用 RRF 做排名融合，仍是"召回"而非"精排"）。可选地在召回后加一个 **rerank 阶段**，用第二个模型对候选 chunk 按 `query+chunk` 相关性精排，在不调大 `top_k` 的前提下提升返回块的相关性密度。
+
+**管线**：单阶段召回 `rerank_depth` 个候选 → `ZhipuReranker` 精排 → 取 `top_k` 返回。
+
+- 实现：`core/rag/rerank.py` 的 `Reranker`（抽象基类）+ `ZhipuReranker`（智谱 `/rerank` 接口）。
+- 复用 embedding 的 `api_key` 与 `base_url`；模型 `rerank_model` 默认 `rerank`（智谱官方公共重排序模型代码）。
+- 候选集大小 `rerank_depth`（默认 50），受智谱接口 `documents ≤ 64` 上限约束，超出按 64 截断。
+- 对任意 retriever（bm25/embedding/hybrid）生效，最常用在 hybrid 上（先保证召回，再精排）。
+- 未配置 `api_key` 时自动降级为单阶段（reranker 为 None）。
+
+配置键：`rerank_enabled`（bool，默认 `false`）、`rerank_model`（str，默认 `rerank`）、`rerank_depth`（int>0，默认 `50`）。环境变量：`KAMA_RAG_RERANK_ENABLED`、`KAMA_RAG_RERANK_MODEL`、`KAMA_RAG_RERANK_DEPTH`。
+
+```toml
+[rag]
+rerank_enabled = true
+rerank_model = "rerank"
+rerank_depth = 50
+```
+
+### 5.2 向量数据库后端（Qdrant，可选）
+
+默认检索后端把稠密向量存在**内存 + JSON 缓存**（`ZhipuEmbeddingIndex` 的 `.rag_index_cache.json`），检索是线性余弦遍历。当 chunk 规模变大、或需要多进程/服务共享索引时，可切到**真向量库**做 ANN 检索。
+
+**当前实现：Qdrant**（`core/rag/vector_db.py` 的 `QdrantIndex`）。选择 Qdrant 的理由——它同时支持两种形态，用一行配置即可在「本地单机」与「服务/分布式」间切换，避免「Chroma 原型 → Qdrant 生产」的二次迁移：
+
+- **local mode**：`QdrantClient(path=...)`，嵌入式、本地目录持久化、零部署，贴合项目「可离线、可移植」定位。
+- **server mode**：`QdrantClient(url=...)`，对接 Docker/分布式（分片 + 副本），未来团队或语料规模扩大时无需改检索代码。
+
+**职责边界**：Qdrant **只接管「存储 + 检索」**，embedding 仍由智谱 `embedding-3` 生成（复用 `ZhipuEmbeddingIndex` 的 `_embed`）。所以仍需配置 `api_key`；未配置 key 时仍回退本地 BM25。
+
+**接口契合**：`QdrantIndex` 是又一个 `RagIndex` 实现，`RagStore`/`rag_search` 工具/`HybridIndex`/增量更新全都不改。为此 `RagIndex.build` 签名从 `(texts, fingerprint)` 拓宽为 `(texts, ids, fingerprint)`——`ids` 是 `RagChunk.id`（`"{doc_id}::{i}"`），给后端一个稳定主键；`Bm25Index`/`ZhipuEmbeddingIndex` 直接 `del ids`，行为不变。
+
+**两个关键细节**：
+
+1. **稳定 id → UUID**：Qdrant 只接受 UUID/uint 作 point id，`"{doc_id}::{i}"` 不能直接用。`_point_id()` 用 `uuid5(NAMESPACE_URL, stable_id)` 把稳定 id 确定性压成 UUID 作 point id，原始 `stable_id` 存进 payload——幂等且保住稳定身份。
+2. **增量靠 content_hash**：`build` 先 `scroll` 拉回 `{point_id: content_hash}`，只对「内容变化」的 chunk 调 embedding 再 `upsert`（未变 chunk 零 API 调用），并 `delete` 掉已不在语料中的陈旧点——延续现有按内容 hash 省钱的机制。同步的 Qdrant 调用经 `asyncio.to_thread` 包住，避免阻塞 daemon 事件循环。
+
+配置键：`vector_db`（str，默认 `""` 走 JSON 缓存；`"qdrant"` 启用）、`qdrant_url`（str，默认 `""` 走 local mode）、`qdrant_path`（str，默认 `~/.kama/qdrant`）。环境变量：`KAMA_RAG_VECTOR_DB`、`KAMA_RAG_QDRANT_URL`、`KAMA_RAG_QDRANT_PATH`。
+
+```toml
+[rag]
+api_key = "..."               # 仍需智谱 key：embedding 由智谱生成
+vector_db = "qdrant"          # 留空则走原来的 JSON 缓存
+qdrant_path = "~/.kama/qdrant"   # local mode；上服务则改 qdrant_url = "http://host:6333"
+```
+
+### 5.3 可靠触发 RAG：三层干预机制
+
+知识库规模扩大、主题增多后，单靠 LLM 自主判断「要不要检索」不可靠。为此从弱到强叠加三层干预，让触发从「模型自觉」升级为「硬性约束」：
+
+**层 1 —— System Prompt 强制指令（最直接）**
+
+`core/runner.py` 的 `_RAG_INSTRUCTION` 常量，在 `rag.enabled` 时注入系统提示：
+
+> 在回答任何与本项目或领域知识相关的问题之前，必须优先调用 rag_search 检索本地知识库，并以检索结果为依据进行作答，严禁仅凭模型自身参数记忆直接回答。
+
+注入点：`ExecutionContext` 新增 `rag_instruction` / `rag_manifest` 字段，`system_prompt()` 在 `## Knowledge Base Retrieval` 标题下拼接指令与清单。这样检索触发不再依赖模型的自主判断。
+
+**层 2 —— 动态注入知识库清单（Manifest，应对多主题与变更）**
+
+仅靠指令不够——Agent 无法预判知识库覆盖边界，可能「该检索没检索」或「检索了却查无此主题」。做法：
+
+- `core/rag/chunk.py` 新增 `extract_topics()`：提取各级标题（去 `#` 与空白）；无标题时退回首行。
+- `RagStore.load_dir` 遍历文件时同步提取主题，聚合为全局清单 `_topics`（去重保序），随 `manifest()` 返回，如 `知识库当前覆盖主题：部署手册、配置优先级、命名规范……`。
+- 清单通过两条路径注入：`RagSearchTool.__init__` 拼进工具 `description`（让 Agent 看到工具就知道能查到什么）；同时 `runner` 把 `rag_store.manifest()` 注入系统提示。
+
+优势：知识库内容变更时清单自动更新，Agent 能准确评估「是否应检索」与「能否检索到」。复用 `load_dir` 既有遍历逻辑，成本低。
+
+**层 3 —— 元数据过滤与多路检索（面向规模化）**
+
+- `RagChunk` 新增 `topic` 字段，`load_dir` 用文档首个标题回填各 chunk 的 `topic` 标签。
+- `RagIndex.search` 签名扩展为 `search(query, top_k, allowed)`：`allowed` 是候选下标白名单，索引层只在白名单内打分——BM25/embedding/hybrid/Qdrant 四个后端一致支持。
+- `rag_search` 新增 `topic` 参数：用户查询时除向量/词法外可附加主题过滤，实现「先按主题路由、再精准检索」。
+- Qdrant 后端的 payload 已存 `stable_id` 与 `content_hash`，为后续把 `topic` 也写入 payload 做服务端过滤预留了位置。
+
+```python
+# 示例：只检索「部署手册」主题下的 chunk
+result = await store.search("运行步骤", topic="部署手册")
+```
+
+三层不互斥、可叠加：层 1 保证「会去检索」，层 2 保证「知道查什么」，层 3 保证「查得准、可规模化」。
 
 ---
 
@@ -268,6 +349,8 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 
 这与内置 `rag_search` 可并存：内置工具负责零依赖的快速召回，MCP 负责高质量语义检索，由 agent 自行决定用哪个。
 
+> 注：§5.2 的 Qdrant 后端是「内置」路线——直接在 `RagIndex` 层接入向量库，embedding 仍走项目自带智谱客户端；而本节的 MCP 路线是把向量检索完全外包给外部 server。二者定位不同：Qdrant 后端用于「保留智谱 embedding + 本地持久化 + 增量缓存」的场景，MCP 用于「已有外部向量服务」的场景。
+
 ---
 
 ## 9. 局限与未来方向
@@ -288,6 +371,7 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 - **混合检索**：关键词 + 向量双路召回后重排（RRF）。
 - **子 agent 共享**：把 `RagStore` 作为共享依赖注入 `_build_child_registry`。
 - **分块策略增强**：按标题/段落结构化切分，替代固定窗口。
+- **更多向量库后端**：`vector_db` 目前只支持 `"qdrant"`，可扩展 Chroma / Milvus 等，只需再实现一个 `RagIndex` 子类并在 `factory._dense` 加分支。
 
 ---
 
@@ -296,9 +380,12 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 | 文件 | 变更 |
 |------|------|
 | `src/kama_claude/core/rag/__init__.py` | 新增，导出模块 |
-| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分词/分块/TF-IDF |
-| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool` |
+| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取，§5.3） |
+| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分词/分块/TF-IDF + `manifest()` + `topic` 过滤 |
+| `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2） |
+| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单 + `topic` 参数） |
 | `src/kama_claude/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `KAMA_RAG_*` 环境变量 |
-| `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 |
-| `tests/unit/test_rag.py` | 新增，覆盖分词/分块/建索引/检索/工具 |
+| `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |
+| `src/kama_claude/core/context.py` | 新增 `rag_instruction`/`rag_manifest` 字段并注入系统提示（§5.3） |
+| `tests/unit/test_rag.py` | 新增，覆盖分词/分块/建索引/检索/工具/主题清单/过滤 |
 | `docs/rag.md` | 本设计文档 |

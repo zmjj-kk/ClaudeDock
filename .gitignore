@@ -17,3 +17,6 @@ uv.lock
 .DS_Store
 *.log
 workspace/
+# RAG 运行时生成的索引缓存
+.rag_index_cache.json
+.rag_index_manifest.json

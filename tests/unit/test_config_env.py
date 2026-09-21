@@ -85,3 +85,27 @@ def test_priority_chain_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     cfg = get_config()
 
     assert cfg.port == 8000
+
+
+# 功能：验证 KAMA_RAG_RERANK_* 环境变量正确覆盖 RagConfig 的 rerank 字段
+# 设计：一次性设置三个 rerank 环境变量，断言 enabled/model/depth 均被解析并覆盖默认值
+def test_rag_rerank_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KAMA_RAG_RERANK_ENABLED", "1")
+    monkeypatch.setenv("KAMA_RAG_RERANK_MODEL", "bge-reranker-large")
+    monkeypatch.setenv("KAMA_RAG_RERANK_DEPTH", "30")
+
+    cfg = get_config()
+
+    assert cfg.rag.rerank_enabled is True
+    assert cfg.rag.rerank_model == "bge-reranker-large"
+    assert cfg.rag.rerank_depth == 30
+
+
+# 功能：验证 KAMA_RAG_RERANK_DEPTH 为非正整数时硬退出
+# 设计：设 depth=0（非法），断言 get_config 抛 SystemExit，符合未知/非法键的防御约定
+def test_rag_rerank_depth_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KAMA_RAG_RERANK_DEPTH", "0")
+    with pytest.raises(SystemExit):
+        get_config()

@@ -18,7 +18,7 @@ from kama_claude.core.loop import AgentLoop
 from kama_claude.core.mcp.server import McpServerManager
 from kama_claude.core.memory.loader import load_context_file
 from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.rag.index import Bm25Index, HybridIndex, RagIndex, ZhipuEmbeddingIndex
+from kama_claude.core.rag.factory import build_store
 from kama_claude.core.rag.store import RagStore
 from kama_claude.core.rag.tool import RagSearchTool
 from kama_claude.core.runs import RUNS_DIR, new_run_id
@@ -45,6 +45,13 @@ from kama_claude.core.trace.writer import TraceWriter
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# RAG 检索强制指令（层 1）：硬性约束回答前优先检索知识库，禁止仅凭参数记忆作答
+_RAG_INSTRUCTION = (
+    "在回答任何与本项目或领域知识相关的问题之前，必须优先调用 rag_search 检索本地知识库，"
+    "并以检索结果为依据进行作答，严禁仅凭模型自身参数记忆直接回答。"
+)
 
 
 @dataclass
@@ -147,36 +154,7 @@ class AgentRunner:
         store = self._rag_store
         if store is None:
             rag = self._config.rag
-
-            # 构建智谱 embedding 检索后端，供 hybrid / embedding 两种模式复用
-            def _dense() -> ZhipuEmbeddingIndex:
-                return ZhipuEmbeddingIndex(
-                    api_key=rag.api_key,
-                    model=rag.embedding_model,
-                    base_url=rag.embedding_base_url,
-                    dimensions=rag.embedding_dimensions,
-                    batch_size=rag.embedding_batch_size,
-                    cache_path=Path(rag.knowledge_dir).expanduser() / ".rag_index_cache.json",
-                    cache_enabled=rag.index_cache,
-                )
-
-            # 按 retriever 选后端；auto 时配了 key 走混合检索，否则纯 BM25 零依赖回退
-            if rag.retriever == "bm25":
-                index: RagIndex = Bm25Index()
-            elif rag.retriever == "embedding":
-                index = _dense()
-            elif rag.retriever == "hybrid":
-                index = HybridIndex(Bm25Index(), _dense())
-            elif rag.api_key:
-                index = HybridIndex(Bm25Index(), _dense())
-            else:
-                index = Bm25Index()
-
-            store = RagStore(
-                chunk_size=rag.chunk_size,
-                chunk_overlap=rag.chunk_overlap,
-                index=index,
-            )
+            store = build_store(rag)
             try:
                 await store.load_dir(Path(rag.knowledge_dir).expanduser())
             except Exception:
@@ -230,6 +208,15 @@ class AgentRunner:
             project_context=project_ctx,
             system_prompt_override=system_prompt_override,
         )
+        # 层 1 + 层 2：RAG 启用时，把检索强制指令与知识库主题清单注入系统提示
+        if self._config.rag.enabled:
+            try:
+                rag_store = await self._get_rag_store()
+                context.rag_instruction = _RAG_INSTRUCTION
+                context.rag_manifest = rag_store.manifest()
+            except Exception:
+                # 知识库构建失败不应拖垮 run，跳过 RAG 提示注入
+                logging.getLogger(__name__).exception("RAG manifest injection failed")
         prefill_len = len(history)
 
         async with EventWriter(run_path / "events.jsonl") as writer:

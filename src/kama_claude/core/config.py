@@ -53,7 +53,7 @@ class PermissionConfig:
 
 @dataclass
 class CompactionConfig:
-    auto_threshold: float = 0.0    # context_pct 触发自动压缩的阈值（0 表示禁用，推荐用手动 /compact）
+    auto_threshold: float = 0.0  # context_pct 触发自动压缩的阈值（0 禁用，推荐手动 /compact）
     tool_result_limit: int = 8_000  # tool_result 截断触发字符数
     tool_result_keep: int = 4_000   # 截断后保留的前缀字符数
 
@@ -88,6 +88,12 @@ class RagConfig:
     embedding_batch_size: int = 64     # 单次请求最大输入条数（≤64）
     index_cache: bool = True           # 是否将向量落盘缓存，避免重启重复计费
     retriever: str = "auto"            # 检索后端：auto/bm25/embedding/hybrid
+    rerank_enabled: bool = False       # 是否在检索后加 rerank 精排（按量计费，默认关闭）
+    rerank_model: str = "rerank"       # 智谱 rerank 模型代码（官方公共重排序模型为 "rerank"）
+    rerank_depth: int = 50             # rerank 前取回的候选 chunk 数（受 API ≤64 上限约束）
+    vector_db: str = ""                # 向量数据库后端；留空走内置 JSON 缓存，可选 "qdrant"
+    qdrant_url: str = ""               # Qdrant 服务地址；留空走本地 local mode（路径持久化）
+    qdrant_path: str = "~/.kama/qdrant"  # Qdrant local mode 的持久化目录
 
 
 @dataclass
@@ -246,7 +252,9 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         comp = data["compaction"]
         if not isinstance(comp, dict):
             raise SystemExit("Config error: [compaction] must be a table")
-        unknown_comp: set[str] = set(comp.keys()) - {"auto_threshold", "tool_result_limit", "tool_result_keep"}
+        unknown_comp: set[str] = set(comp.keys()) - {
+            "auto_threshold", "tool_result_limit", "tool_result_keep"
+        }
         if unknown_comp:
             raise SystemExit(f"Unknown [compaction] keys: {', '.join(sorted(unknown_comp))}")
         if "auto_threshold" in comp:
@@ -257,12 +265,16 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         if "tool_result_limit" in comp:
             val = comp["tool_result_limit"]
             if not isinstance(val, int) or val <= 0:
-                raise SystemExit("Config error: compaction.tool_result_limit must be a positive integer")
+                raise SystemExit(
+                    "Config error: compaction.tool_result_limit must be a positive integer"
+                )
             config.compaction.tool_result_limit = val
         if "tool_result_keep" in comp:
             val = comp["tool_result_keep"]
             if not isinstance(val, int) or val <= 0:
-                raise SystemExit("Config error: compaction.tool_result_keep must be a positive integer")
+                raise SystemExit(
+                    "Config error: compaction.tool_result_keep must be a positive integer"
+                )
             config.compaction.tool_result_keep = val
 
     if "mcp" in data:
@@ -283,7 +295,9 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                 raise SystemExit(f"Config error: mcp.servers[{i}].name must be a non-empty string")
             transport = srv.get("transport", "stdio")
             if transport not in ("stdio", "tcp"):
-                raise SystemExit(f"Config error: mcp.servers[{i}].transport must be 'stdio' or 'tcp'")
+                raise SystemExit(
+                    f"Config error: mcp.servers[{i}].transport must be 'stdio' or 'tcp'"
+                )
             s = McpServerConfig(name=name, transport=transport)
             if "command" in srv:
                 val = srv["command"]
@@ -320,6 +334,8 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             "enabled", "knowledge_dir", "top_k", "chunk_size", "chunk_overlap",
             "api_key", "embedding_model", "embedding_base_url", "embedding_dimensions",
             "embedding_batch_size", "index_cache", "retriever",
+            "rerank_enabled", "rerank_model", "rerank_depth",
+            "vector_db", "qdrant_url", "qdrant_path",
         }
         if unknown_rag:
             raise SystemExit(f"Unknown [rag] keys: {', '.join(sorted(unknown_rag))}")
@@ -390,6 +406,36 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                     f"{list(_RETRIEVER_CHOICES)}, got: {val!r}"
                 )
             config.rag.retriever = val
+        if "rerank_enabled" in rag:
+            val = rag["rerank_enabled"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: rag.rerank_enabled must be a boolean")
+            config.rag.rerank_enabled = val
+        if "rerank_model" in rag:
+            val = rag["rerank_model"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.rerank_model must be a string")
+            config.rag.rerank_model = val
+        if "rerank_depth" in rag:
+            val = rag["rerank_depth"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: rag.rerank_depth must be a positive integer")
+            config.rag.rerank_depth = val
+        if "vector_db" in rag:
+            val = rag["vector_db"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.vector_db must be a string")
+            config.rag.vector_db = val
+        if "qdrant_url" in rag:
+            val = rag["qdrant_url"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.qdrant_url must be a string")
+            config.rag.qdrant_url = val
+        if "qdrant_path" in rag:
+            val = rag["qdrant_path"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: rag.qdrant_path must be a string")
+            config.rag.qdrant_path = val
 
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
@@ -468,7 +514,8 @@ def _apply_env(config: KamaConfig) -> None:
             compact_threshold_val = float(compact_threshold)
             if not (0.0 <= compact_threshold_val <= 1.0):
                 raise SystemExit(
-                    f"Config error: KAMA_COMPACT_THRESHOLD must be between 0 and 1, got: {compact_threshold!r}"
+                    "Config error: KAMA_COMPACT_THRESHOLD must be between 0 and 1, "
+                    f"got: {compact_threshold!r}"
                 )
             config.compaction.auto_threshold = compact_threshold_val
         except ValueError:
@@ -482,12 +529,14 @@ def _apply_env(config: KamaConfig) -> None:
             compact_tool_limit_val = int(compact_tool_limit)
             if compact_tool_limit_val <= 0:
                 raise SystemExit(
-                    f"Config error: KAMA_COMPACT_TOOL_LIMIT must be a positive integer, got: {compact_tool_limit!r}"
+                    "Config error: KAMA_COMPACT_TOOL_LIMIT must be a positive integer, "
+                    f"got: {compact_tool_limit!r}"
                 )
             config.compaction.tool_result_limit = compact_tool_limit_val
         except ValueError:
             raise SystemExit(
-                f"Config error: KAMA_COMPACT_TOOL_LIMIT must be an integer, got: {compact_tool_limit!r}"
+                "Config error: KAMA_COMPACT_TOOL_LIMIT must be an integer, "
+                f"got: {compact_tool_limit!r}"
             )
 
     compact_tool_keep = os.environ.get("KAMA_COMPACT_TOOL_KEEP")
@@ -496,12 +545,14 @@ def _apply_env(config: KamaConfig) -> None:
             compact_tool_keep_val = int(compact_tool_keep)
             if compact_tool_keep_val <= 0:
                 raise SystemExit(
-                    f"Config error: KAMA_COMPACT_TOOL_KEEP must be a positive integer, got: {compact_tool_keep!r}"
+                    "Config error: KAMA_COMPACT_TOOL_KEEP must be a positive integer, "
+                    f"got: {compact_tool_keep!r}"
                 )
             config.compaction.tool_result_keep = compact_tool_keep_val
         except ValueError:
             raise SystemExit(
-                f"Config error: KAMA_COMPACT_TOOL_KEEP must be an integer, got: {compact_tool_keep!r}"
+                "Config error: KAMA_COMPACT_TOOL_KEEP must be an integer, "
+                f"got: {compact_tool_keep!r}"
             )
 
     rag_enabled = os.environ.get("KAMA_RAG_ENABLED")
@@ -614,3 +665,39 @@ def _apply_env(config: KamaConfig) -> None:
                 f"{list(_RETRIEVER_CHOICES)}, got: {rag_retriever!r}"
             )
         config.rag.retriever = rag_retriever
+
+    rag_rerank_enabled = os.environ.get("KAMA_RAG_RERANK_ENABLED")
+    if rag_rerank_enabled is not None:
+        config.rag.rerank_enabled = rag_rerank_enabled.lower() not in ("0", "false", "no")
+
+    rag_rerank_model = os.environ.get("KAMA_RAG_RERANK_MODEL")
+    if rag_rerank_model is not None:
+        config.rag.rerank_model = rag_rerank_model
+
+    rag_rerank_depth = os.environ.get("KAMA_RAG_RERANK_DEPTH")
+    if rag_rerank_depth is not None:
+        try:
+            rag_rerank_depth_val = int(rag_rerank_depth)
+            if rag_rerank_depth_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_RERANK_DEPTH must be a positive integer, "
+                    f"got: {rag_rerank_depth!r}"
+                )
+            config.rag.rerank_depth = rag_rerank_depth_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_RERANK_DEPTH must be an integer, "
+                f"got: {rag_rerank_depth!r}"
+            )
+
+    rag_vector_db = os.environ.get("KAMA_RAG_VECTOR_DB")
+    if rag_vector_db is not None:
+        config.rag.vector_db = rag_vector_db
+
+    rag_qdrant_url = os.environ.get("KAMA_RAG_QDRANT_URL")
+    if rag_qdrant_url is not None:
+        config.rag.qdrant_url = rag_qdrant_url
+
+    rag_qdrant_path = os.environ.get("KAMA_RAG_QDRANT_PATH")
+    if rag_qdrant_path is not None:
+        config.rag.qdrant_path = rag_qdrant_path

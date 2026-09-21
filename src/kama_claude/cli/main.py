@@ -38,6 +38,20 @@ def main() -> None:
     trace_parser.add_argument("--raw", action="store_true", help="Output raw NDJSON")
     trace_parser.add_argument("--follow", "-f", action="store_true", help="Follow new records")
 
+    eval_parser = subparsers.add_parser(
+        "eval-rag", help="Evaluate RAG retrieval & generation quality"
+    )
+    eval_parser.add_argument("--dataset", default="docs/evaluation/rag_queries.jsonl")
+    eval_parser.add_argument("--layer", choices=["retrieval", "generation", "both"], default="both")
+    eval_parser.add_argument(
+        "--backend", choices=["bm25", "embedding", "hybrid", "all"], default="all"
+    )
+    eval_parser.add_argument("--top-k", type=int, default=None)
+    eval_parser.add_argument("--output", default=None)
+    eval_parser.add_argument(
+        "--rerank", action="store_true", help="检索层对比 baseline 与 +rerank 精排"
+    )
+
     args = parser.parse_args()
 
     if args.version:
@@ -72,6 +86,10 @@ def main() -> None:
             raw=args.raw,
             follow=args.follow,
         )
+    elif args.command == "eval-rag":
+        from kama_claude.cli.commands.eval_rag import cmd_eval_rag
+
+        cmd_eval_rag(args, config)
     else:
         parser.print_help()
         sys.exit(1)

@@ -51,13 +51,15 @@ def hash_text(text: str) -> str:
 
 
 class RagIndex(ABC):
-    # 基于语料构建索引；fingerprint 用于缓存校验
+    # 基于语料构建索引；ids 为与 texts 等长的稳定标识，fingerprint 用于缓存校验
     @abstractmethod
-    async def build(self, texts: list[str], fingerprint: str) -> None: ...
+    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None: ...
 
-    # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表
+    # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表；allowed 限定候选下标白名单
     @abstractmethod
-    async def search(self, query: str, top_k: int) -> list[tuple[int, float]]: ...
+    async def search(
+        self, query: str, top_k: int, allowed: set[int] | None = None
+    ) -> list[tuple[int, float]]: ...
 
 
 class Bm25Index(RagIndex):
@@ -72,8 +74,8 @@ class Bm25Index(RagIndex):
         self._avgdl = 0.0
 
     # 统计每篇文档词频、文档长度与全局 df，并计算平均文档长度
-    async def build(self, texts: list[str], fingerprint: str) -> None:
-        del fingerprint
+    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
+        del ids, fingerprint
         self._n = len(texts)
         self._df = {}
         self._doc_tf = []
@@ -94,12 +96,16 @@ class Bm25Index(RagIndex):
         return math.log(1 + (self._n - df + 0.5) / (df + 0.5))
 
     # 对每篇文档累加查询词项的 BM25 得分，按分数取 top_k
-    async def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
+    async def search(
+        self, query: str, top_k: int, allowed: set[int] | None = None
+    ) -> list[tuple[int, float]]:
         if self._n == 0 or not query.strip():
             return []
         q_tokens = set(_tokenize(query))
         scores: list[tuple[float, int]] = []
         for i in range(self._n):
+            if allowed is not None and i not in allowed:
+                continue
             tf = self._doc_tf[i]
             dl = self._doc_len[i]
             s = 0.0
@@ -140,8 +146,8 @@ class ZhipuEmbeddingIndex(RagIndex):
         )
 
     # 构建稠密向量索引：按 chunk 内容 hash 复用缓存，仅对新增/变更 chunk 调用 API
-    async def build(self, texts: list[str], fingerprint: str) -> None:
-        del fingerprint
+    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
+        del ids, fingerprint
         if not texts:
             self._vectors = []
             return
@@ -161,12 +167,16 @@ class ZhipuEmbeddingIndex(RagIndex):
         self._vectors = [v for v in vectors if v is not None]
 
     # 检索与 query 最相似的 top_k 个 chunk 下标与分数
-    async def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
+    async def search(
+        self, query: str, top_k: int, allowed: set[int] | None = None
+    ) -> list[tuple[int, float]]:
         if not self._vectors or not query.strip():
             return []
         qvec = (await self._embed([query]))[0]
         scores: list[tuple[float, int]] = []
         for i, dvec in enumerate(self._vectors):
+            if allowed is not None and i not in allowed:
+                continue
             sim = _cosine_dense(qvec, dvec)
             if sim > 0.0:
                 scores.append((sim, i))
@@ -246,14 +256,16 @@ class HybridIndex(RagIndex):
         self._depth = depth
 
     # 同时构建两个子索引（BM25 重建成本低；embedding 命中已有缓存）
-    async def build(self, texts: list[str], fingerprint: str) -> None:
-        await self._lexical.build(texts, fingerprint)
-        await self._dense.build(texts, fingerprint)
+    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
+        await self._lexical.build(texts, ids, fingerprint)
+        await self._dense.build(texts, ids, fingerprint)
 
     # 分别取 depth 个候选，按 RRF 分数合并后返回 top_k
-    async def search(self, query: str, top_k: int) -> list[tuple[int, float]]:
-        lex = await self._lexical.search(query, self._depth)
-        den = await self._dense.search(query, self._depth)
+    async def search(
+        self, query: str, top_k: int, allowed: set[int] | None = None
+    ) -> list[tuple[int, float]]:
+        lex = await self._lexical.search(query, self._depth, allowed)
+        den = await self._dense.search(query, self._depth, allowed)
         fused: dict[int, float] = {}
         for rank, (idx, _s) in enumerate(lex):
             fused[idx] = fused.get(idx, 0.0) + 1.0 / (self._rrf_k + rank + 1)

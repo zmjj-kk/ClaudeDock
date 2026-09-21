@@ -20,6 +20,10 @@ class ExecutionContext:
     result: str = ""
     # skill 或 subagent 角色可覆盖默认 system prompt
     system_prompt_override: str | None = None
+    # RAG 检索强制指令（层 1）：配置启用 RAG 时注入
+    rag_instruction: str = ""
+    # RAG 知识库主题清单（层 2）：动态注入，帮助判断检索边界
+    rag_manifest: str = ""
 
     # 初始化消息历史，优先使用 session 完整回放内容
     def __post_init__(self) -> None:
@@ -35,6 +39,10 @@ class ExecutionContext:
             parts.append("\n\n## Global Context\n" + self.global_context.strip())
         if self.project_context.strip():
             parts.append("\n\n## Project Context\n" + self.project_context.strip())
+        if self.rag_instruction.strip():
+            parts.append("\n\n## Knowledge Base Retrieval\n" + self.rag_instruction.strip())
+            if self.rag_manifest.strip():
+                parts.append("\n" + self.rag_manifest.strip())
         if self.session_notes.strip():
             parts.append(
                 "\n\n## Session Notes\n"

@@ -95,8 +95,9 @@ def _block_units(block: tuple[str, str], size: int, overlap: int) -> list[str]:
     return units
 
 
-# 贪心合并相邻单元，直到总长不超过 size，保证标题与后续段落落在同一块
-def _merge_units(units: list[str], size: int) -> list[str]:
+# 贪心合并相邻单元到 size 上限；overlap>0 时每块携带上一块尾部上下文，避免边界语义断裂
+def _merge_units(units: list[str], size: int, overlap: int) -> list[str]:
+    overlap = max(0, min(overlap, size - 1))
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
@@ -106,11 +107,16 @@ def _merge_units(units: list[str], size: int) -> list[str]:
             continue
         if current and current_len + 1 + len(unit) > size:
             chunks.append("\n".join(current))
-            current = [unit]
-            current_len = len(unit)
+            # 下一块以上一块尾部 overlap 字符作为上下文前缀（计入 size 预算）
+            prefix = chunks[-1][-overlap:] if overlap > 0 else ""
+            current = [prefix] if prefix else []
+            current_len = len(prefix)
+        if current:
+            current.append(unit)
+            current_len += len(unit) + 1
         else:
             current.append(unit)
-            current_len += len(unit) + (1 if current else 0)
+            current_len = len(unit)
     if current:
         chunks.append("\n".join(current))
     return chunks
@@ -124,4 +130,22 @@ def split_semantic(text: str, size: int, overlap: int) -> list[str]:
     units: list[str] = []
     for block in _structural_blocks(text):
         units.extend(_block_units(block, size, overlap))
-    return _merge_units(units, size)
+    return _merge_units(units, size, overlap)
+
+
+# 提取文档的主题标签：各级标题文本（去 # 与空白）；无标题时退回首个非空行
+def extract_topics(text: str) -> list[str]:
+    topics: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        m = _HEADING_RE.match(stripped)
+        if m:
+            # 去掉前导 # 与随后的空白，保留标题文字
+            topics.append(stripped.lstrip("#").strip())
+    if not topics:
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped:
+                topics.append(stripped[:80])
+                break
+    return topics
