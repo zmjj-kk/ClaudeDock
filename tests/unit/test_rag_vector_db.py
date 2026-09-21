@@ -62,3 +62,28 @@ async def test_qdrant_index_incremental(tmp_path: Path) -> None:
     await index.build(["beta", "gamma"], ["b::0", "c::0"], "fp2")
     assert len(calls) == 2
     assert calls[-1] == ["gamma"]
+
+
+# 功能：验证 QdrantIndex 把 filter 转成服务端条件下推，命中符合元数据的点
+# 设计：两个 chunk 向量相同但 meta 不同，带 filter 检索仅返回 department=研发 的点，
+#       证明过滤在 Qdrant 侧完成而非召回后内存过滤
+async def test_qdrant_index_metadata_filter_pushdown(tmp_path: Path) -> None:
+    index = QdrantIndex(_fake_embed(), path=str(tmp_path / "qdrant"))
+    texts = ["machine learning notes", "machine learning notes"]
+    metas = [{"department": "研发", "topic": "AI"}, {"department": "财务", "topic": "AI"}]
+    await index.build(texts, ["a::0", "b::0"], "fp", metas)
+    scores = await index.search("machine learning", top_k=2, filter={"department": "研发"})
+    assert scores == [(0, 1.0)]
+
+
+# 功能：验证 QdrantIndex 对 filter 列表值使用 MatchAny（任一匹配）
+# 设计：两个点分别标研发/财务，filter 传列表命中两者，断言返回全部下标
+async def test_qdrant_index_metadata_filter_any(tmp_path: Path) -> None:
+    index = QdrantIndex(_fake_embed(), path=str(tmp_path / "qdrant"))
+    texts = ["machine learning notes", "machine learning notes"]
+    metas = [{"department": "研发"}, {"department": "财务"}]
+    await index.build(texts, ["a::0", "b::0"], "fp", metas)
+    scores = await index.search(
+        "machine learning", top_k=2, filter={"department": ["研发", "财务"]}
+    )
+    assert sorted(i for i, _ in scores) == [0, 1]

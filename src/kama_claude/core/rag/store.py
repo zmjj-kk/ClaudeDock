@@ -114,8 +114,10 @@ class RagStore:
         self._chunks = chunks
         self._topics = _dedupe(topics)
         self._save_manifest(next_docs)
+        # 把 topic 并入各 chunk 元数据，随 metas 传给后端，供向量库服务端过滤下推
+        metas = [{**c.metadata, "topic": c.topic} for c in chunks]
         await self._index.build(
-            [c.text for c in chunks], [c.id for c in chunks], self._build_token()
+            [c.text for c in chunks], [c.id for c in chunks], self._build_token(), metas
         )
         return len(chunks)
 
@@ -137,10 +139,10 @@ class RagStore:
         if allowed is not None and not allowed:
             return []
         if self._reranker is None:
-            scores = await self._index.search(query, top_k, allowed)
+            scores = await self._index.search(query, top_k, allowed, cond or None)
             return [self._chunks[i] for i, _ in scores]
         depth = max(top_k, min(self._rerank_depth, 64))
-        scores = await self._index.search(query, depth, allowed)
+        scores = await self._index.search(query, depth, allowed, cond or None)
         candidates = [self._chunks[i] for i, _ in scores]
         r_scores = await self._reranker.rerank(query, [c.text for c in candidates])
         ranked = sorted(zip(candidates, r_scores), key=lambda x: x[1], reverse=True)

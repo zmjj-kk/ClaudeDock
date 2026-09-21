@@ -217,12 +217,13 @@ rerank_depth = 50
 
 **职责边界**：Qdrant **只接管「存储 + 检索」**，embedding 仍由智谱 `embedding-3` 生成（复用 `ZhipuEmbeddingIndex` 的 `_embed`）。所以仍需配置 `api_key`；未配置 key 时仍回退本地 BM25。
 
-**接口契合**：`QdrantIndex` 是又一个 `RagIndex` 实现，`RagStore`/`rag_search` 工具/`HybridIndex`/增量更新全都不改。为此 `RagIndex.build` 签名从 `(texts, fingerprint)` 拓宽为 `(texts, ids, fingerprint)`——`ids` 是 `RagChunk.id`（`"{doc_id}::{i}"`），给后端一个稳定主键；`Bm25Index`/`ZhipuEmbeddingIndex` 直接 `del ids`，行为不变。
+**接口契合**：`QdrantIndex` 是又一个 `RagIndex` 实现，`RagStore`/`rag_search` 工具/`HybridIndex`/增量更新全都不改。为此 `RagIndex.build` 签名拓宽为 `(texts, ids, fingerprint, metas)`、`RagIndex.search` 拓宽为 `(query, top_k, allowed, filter)`——`ids` 是 `RagChunk.id`（`"{doc_id}::{i}"`）作稳定主键，`metas` 是各 chunk 的可过滤字段（`topic` 已并入），`filter` 是检索时的键值过滤条件；内存后端（`Bm25Index`/`ZhipuEmbeddingIndex`）对新增参数直接 `del`，行为不变。
 
-**两个关键细节**：
+**三个关键细节**：
 
 1. **稳定 id → UUID**：Qdrant 只接受 UUID/uint 作 point id，`"{doc_id}::{i}"` 不能直接用。`_point_id()` 用 `uuid5(NAMESPACE_URL, stable_id)` 把稳定 id 确定性压成 UUID 作 point id，原始 `stable_id` 存进 payload——幂等且保住稳定身份。
-2. **增量靠 content_hash**：`build` 先 `scroll` 拉回 `{point_id: content_hash}`，只对「内容变化」的 chunk 调 embedding 再 `upsert`（未变 chunk 零 API 调用），并 `delete` 掉已不在语料中的陈旧点——延续现有按内容 hash 省钱的机制。同步的 Qdrant 调用经 `asyncio.to_thread` 包住，避免阻塞 daemon 事件循环。
+2. **增量靠 content_hash**：`build` 先 `scroll` 拉回 `{point_id: payload}`，只对「内容变化」的 chunk 调 embedding 再 `upsert`（未变 chunk 零 API 调用），并 `delete` 掉已不在语料中的陈旧点——延续现有按内容 hash 省钱的机制。同步的 Qdrant 调用经 `asyncio.to_thread` 包住，避免阻塞 daemon 事件循环。
+3. **元数据写 payload + 服务端过滤下推**：每个点 payload 额外存 `meta`（chunk 的 `metadata` + `topic`）。检索时 `filter` 转成 Qdrant `FieldCondition`（单值 `MatchValue`、列表 `MatchAny`，键前缀 `meta.`），经 `query_points(query_filter=...)` 下推——在服务端「先剪枝、再算相似度」，而非召回后内存过滤。内容未变仅 meta 变化时，只 `set_payload` 更新 `meta` 字段，不重算向量。
 
 配置键：`vector_db`（str，默认 `""` 走 JSON 缓存；`"qdrant"` 启用）、`qdrant_url`（str，默认 `""` 走 local mode）、`qdrant_path`（str，默认 `~/.kama/qdrant`）。环境变量：`KAMA_RAG_VECTOR_DB`、`KAMA_RAG_QDRANT_URL`、`KAMA_RAG_QDRANT_PATH`。
 
@@ -279,7 +280,7 @@ result = await store.search("运行步骤", filter={"department": "研发"})
 #   - updated_at: 2026-09
 ```
 
-> Qdrant 后端的 payload 已存 `stable_id` / `content_hash`；把 `metadata` 也写入 payload 后，可将 `filter` 下推为服务端 payload filter（`FieldCondition`），在服务端「先剪枝、再算相似度」，进一步规模化。
+**后端执行差异**：内存后端把 `filter` 翻译成下标白名单 `allowed`，只在白名单内打分；`QdrantIndex` 额外把 `filter` 下推为服务端 `FieldCondition`（见 §5.2 细节 3），先剪枝再算相似度——大规模语料下无需全量召回。二者对外行为一致。
 
 三层不互斥、可叠加：层 1 保证「会去检索」，层 2 保证「知道查什么」，层 3 保证「查得准、可规模化」。
 
@@ -396,7 +397,7 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 | `src/kama_claude/core/rag/__init__.py` | 新增，导出模块 |
 | `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（§5.3） |
 | `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 结构化过滤 |
-| `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2） |
+| `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2，含元数据 payload + 服务端过滤下推） |
 | `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表 + `filter` 参数） |
 | `src/kama_claude/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `KAMA_RAG_*` 环境变量 |
 | `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |

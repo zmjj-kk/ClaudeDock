@@ -21,6 +21,11 @@ def _point_id(sid: str) -> str:
     return str(uuid.uuid5(_NS, sid))
 
 
+# 组装 Qdrant 点 payload：稳定 id、内容 hash、可过滤元数据（含 topic）
+def _payload(sid: str, content_hash: str, meta: dict[str, str]) -> dict[str, Any]:
+    return {"stable_id": sid, "content_hash": content_hash, "meta": meta}
+
+
 class QdrantIndex(RagIndex):
     # 初始化 Qdrant 客户端：embed 复用智谱 embedding 生成，Qdrant 只接管存储与检索
     def __init__(
@@ -56,9 +61,9 @@ class QdrantIndex(RagIndex):
             ),
         )
 
-    # 拉取库中全部点的 {point_id: content_hash} 映射，用于增量比对与清理
-    def _existing_hashes(self) -> dict[str, str]:
-        existing: dict[str, str] = {}
+    # 拉取库中全部点的 {point_id: payload} 映射，用于增量比对、meta 变更检测与清理
+    def _existing_payloads(self) -> dict[str, dict[str, Any]]:
+        existing: dict[str, dict[str, Any]] = {}
         offset: Any = None
         while True:
             points, offset = self._client.scroll(
@@ -69,52 +74,81 @@ class QdrantIndex(RagIndex):
                 with_vectors=False,
             )
             for p in points:
-                payload = p.payload or {}
-                existing[str(p.id)] = str(payload.get("content_hash", ""))
+                existing[str(p.id)] = p.payload or {}
             if offset is None:
                 break
         return existing
 
-    # 构建索引：按稳定 id + content_hash 增量 upsert，仅新增/变更 chunk 调 embedding
-    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
+    # 构建索引：按稳定 id + content_hash 增量 upsert，仅新增/变更 chunk 调 embedding；
+    # 元数据写入 payload 供检索时服务端过滤下推；meta 变更仅更新 payload 不重算向量
+    async def build(
+        self,
+        texts: list[str],
+        ids: list[str],
+        fingerprint: str,
+        metas: list[dict[str, str]] | None = None,
+    ) -> None:
         del fingerprint
         await asyncio.to_thread(self._ensure_collection)
-        existing = await asyncio.to_thread(self._existing_hashes)
+        existing = await asyncio.to_thread(self._existing_payloads)
         point_ids = [_point_id(sid) for sid in ids]
         hashes = [hash_text(t) for t in texts]
-        to_embed = [i for i in range(len(texts)) if existing.get(point_ids[i]) != hashes[i]]
+        metas = metas if metas is not None else [{} for _ in texts]
+        # 内容变化（含新增）→ 重新 embedding + upsert，写入完整 payload
+        to_embed = [
+            i for i in range(len(texts))
+            if existing.get(point_ids[i], {}).get("content_hash") != hashes[i]
+        ]
         if to_embed:
             vecs = await self._embed._embed([texts[i] for i in to_embed])
             points = [
                 self._models.PointStruct(
                     id=point_ids[i],
                     vector=vecs[j],
-                    payload={"stable_id": ids[i], "content_hash": hashes[i]},
+                    payload=_payload(ids[i], hashes[i], metas[i]),
                 )
                 for j, i in enumerate(to_embed)
             ]
             await asyncio.to_thread(self._client.upsert, self._collection, points)
+        # 内容未变但元数据变化的点：仅 merge 更新 meta 字段，避免重复 embedding
+        embedded = set(to_embed)
+        for i in range(len(texts)):
+            if i in embedded:
+                continue
+            if existing.get(point_ids[i], {}).get("meta") != metas[i]:
+                await asyncio.to_thread(
+                    self._client.set_payload,
+                    self._collection,
+                    {"meta": metas[i]},
+                    [point_ids[i]],
+                )
         stale = set(existing) - set(point_ids)
         if stale:
             await asyncio.to_thread(self._client.delete, self._collection, list(stale))
         self._idx_map = {point_ids[i]: i for i in range(len(ids))}
 
     # 检索与 query 最相似的 top_k 个点，把 point id 映射回 texts 下标返回；
-    # allowed 限定候选下标白名单时，扩大召回上限再过滤，保证过滤后仍能取满 top_k
+    # allowed 限定候选下标白名单时扩大召回上限再过滤，filter 转成服务端条件下推剪枝
     async def search(
-        self, query: str, top_k: int, allowed: set[int] | None = None
+        self,
+        query: str,
+        top_k: int,
+        allowed: set[int] | None = None,
+        filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]:
         if not self._idx_map or not query.strip():
             return []
         if allowed is not None and not allowed:
             return []
         qvec = (await self._embed._embed([query]))[0]
-        limit = top_k if allowed is None else len(self._idx_map)
+        # 有服务端过滤时候选已由 filter 剪枝，仅召回 top_k；否则白名单需全量召回后二次筛选
+        limit = top_k if (allowed is None or filter) else len(self._idx_map)
         resp = await asyncio.to_thread(
             self._client.query_points,
             collection_name=self._collection,
             query=qvec,
             limit=limit,
+            query_filter=self._build_filter(filter),
         )
         out: list[tuple[int, float]] = []
         for hit in resp.points:
@@ -127,3 +161,19 @@ class QdrantIndex(RagIndex):
                 if len(out) >= top_k:
                     break
         return out
+
+    # 把键值过滤条件转成 Qdrant 服务端 Filter；单值为精确匹配，列表为任一匹配
+    def _build_filter(self, cond: dict[str, object] | None) -> Any:
+        if not cond:
+            return None
+        must: list[Any] = []
+        for key, val in cond.items():
+            # 可过滤字段统一存于 payload.meta 命名空间下
+            field = f"meta.{key}"
+            match: Any
+            if isinstance(val, list):
+                match = self._models.MatchAny(any=[str(v) for v in val])
+            else:
+                match = self._models.MatchValue(value=str(val))
+            must.append(self._models.FieldCondition(key=field, match=match))
+        return self._models.Filter(must=must)

@@ -51,14 +51,25 @@ def hash_text(text: str) -> str:
 
 
 class RagIndex(ABC):
-    # 基于语料构建索引；ids 为与 texts 等长的稳定标识，fingerprint 用于缓存校验
+    # 基于语料构建索引；ids 为稳定标识，fingerprint 用于缓存校验，metas 为各 chunk 可过滤字段
     @abstractmethod
-    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None: ...
+    async def build(
+        self,
+        texts: list[str],
+        ids: list[str],
+        fingerprint: str,
+        metas: list[dict[str, str]] | None = None,
+    ) -> None: ...
 
-    # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表；allowed 限定候选下标白名单
+    # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表；
+    # allowed 限定候选下标白名单，filter 为键值过滤条件（向量库后端可下推服务端过滤）
     @abstractmethod
     async def search(
-        self, query: str, top_k: int, allowed: set[int] | None = None
+        self,
+        query: str,
+        top_k: int,
+        allowed: set[int] | None = None,
+        filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]: ...
 
 
@@ -74,8 +85,14 @@ class Bm25Index(RagIndex):
         self._avgdl = 0.0
 
     # 统计每篇文档词频、文档长度与全局 df，并计算平均文档长度
-    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
-        del ids, fingerprint
+    async def build(
+        self,
+        texts: list[str],
+        ids: list[str],
+        fingerprint: str,
+        metas: list[dict[str, str]] | None = None,
+    ) -> None:
+        del ids, fingerprint, metas
         self._n = len(texts)
         self._df = {}
         self._doc_tf = []
@@ -97,8 +114,13 @@ class Bm25Index(RagIndex):
 
     # 对每篇文档累加查询词项的 BM25 得分，按分数取 top_k
     async def search(
-        self, query: str, top_k: int, allowed: set[int] | None = None
+        self,
+        query: str,
+        top_k: int,
+        allowed: set[int] | None = None,
+        filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]:
+        del filter
         if self._n == 0 or not query.strip():
             return []
         q_tokens = set(_tokenize(query))
@@ -146,8 +168,14 @@ class ZhipuEmbeddingIndex(RagIndex):
         )
 
     # 构建稠密向量索引：按 chunk 内容 hash 复用缓存，仅对新增/变更 chunk 调用 API
-    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
-        del ids, fingerprint
+    async def build(
+        self,
+        texts: list[str],
+        ids: list[str],
+        fingerprint: str,
+        metas: list[dict[str, str]] | None = None,
+    ) -> None:
+        del ids, fingerprint, metas
         if not texts:
             self._vectors = []
             return
@@ -168,8 +196,13 @@ class ZhipuEmbeddingIndex(RagIndex):
 
     # 检索与 query 最相似的 top_k 个 chunk 下标与分数
     async def search(
-        self, query: str, top_k: int, allowed: set[int] | None = None
+        self,
+        query: str,
+        top_k: int,
+        allowed: set[int] | None = None,
+        filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]:
+        del filter
         if not self._vectors or not query.strip():
             return []
         qvec = (await self._embed([query]))[0]
@@ -256,16 +289,26 @@ class HybridIndex(RagIndex):
         self._depth = depth
 
     # 同时构建两个子索引（BM25 重建成本低；embedding 命中已有缓存）
-    async def build(self, texts: list[str], ids: list[str], fingerprint: str) -> None:
-        await self._lexical.build(texts, ids, fingerprint)
-        await self._dense.build(texts, ids, fingerprint)
+    async def build(
+        self,
+        texts: list[str],
+        ids: list[str],
+        fingerprint: str,
+        metas: list[dict[str, str]] | None = None,
+    ) -> None:
+        await self._lexical.build(texts, ids, fingerprint, metas)
+        await self._dense.build(texts, ids, fingerprint, metas)
 
     # 分别取 depth 个候选，按 RRF 分数合并后返回 top_k
     async def search(
-        self, query: str, top_k: int, allowed: set[int] | None = None
+        self,
+        query: str,
+        top_k: int,
+        allowed: set[int] | None = None,
+        filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]:
-        lex = await self._lexical.search(query, self._depth, allowed)
-        den = await self._dense.search(query, self._depth, allowed)
+        lex = await self._lexical.search(query, self._depth, allowed, filter)
+        den = await self._dense.search(query, self._depth, allowed, filter)
         fused: dict[int, float] = {}
         for rank, (idx, _s) in enumerate(lex):
             fused[idx] = fused.get(idx, 0.0) + 1.0 / (self._rrf_k + rank + 1)
