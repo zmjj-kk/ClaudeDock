@@ -8,6 +8,8 @@ _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _HEADING_RE = re.compile(r"^#{1,6}\s+\S")
 # 句末标点：中文标点后直接切，英文标点后须跟空白或行尾以避免误拆小数/缩写
 _SENT_SPLIT_RE = re.compile(r"(?<=[。！？])\s*|(?<=[.!?])(?=\s|$)")
+# frontmatter 键值行：key: value（key 为字母/数字/下划线/连字符）
+_FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+)$")
 
 
 # 将长文本按固定大小切块，带固定重叠；优先在行边界切断，避免把表格/代码行切成两半
@@ -133,6 +135,22 @@ def split_semantic(text: str, size: int, overlap: int) -> list[str]:
     return _merge_units(units, size, overlap)
 
 
+# 解析 Markdown frontmatter（--- 包着的 key: value 块），返回 dict；无或格式错返回空
+def parse_frontmatter(text: str) -> dict[str, str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    meta: dict[str, str] = {}
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        m = _FRONTMATTER_KEY_RE.match(stripped)
+        if m:
+            meta[m.group(1)] = m.group(2).strip()
+    return meta
+
+
 # 提取文档的主题标签：各级标题文本（去 # 与空白）；无标题时退回首个非空行
 def extract_topics(text: str) -> list[str]:
     topics: list[str] = []
@@ -145,7 +163,7 @@ def extract_topics(text: str) -> list[str]:
     if not topics:
         for line in text.splitlines():
             stripped = line.strip()
-            if stripped:
+            if stripped and not stripped.startswith("---"):
                 topics.append(stripped[:80])
                 break
     return topics

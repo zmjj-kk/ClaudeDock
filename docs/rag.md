@@ -255,17 +255,31 @@ qdrant_path = "~/.kama/qdrant"   # local mode；上服务则改 qdrant_url = "ht
 
 优势：知识库内容变更时清单自动更新，Agent 能准确评估「是否应检索」与「能否检索到」。复用 `load_dir` 既有遍历逻辑，成本低。
 
-**层 3 —— 元数据过滤与多路检索（面向规模化）**
+**层 3 —— 结构化元数据过滤与多路检索（面向规模化）**
 
-- `RagChunk` 新增 `topic` 字段，`load_dir` 用文档首个标题回填各 chunk 的 `topic` 标签。
-- `RagIndex.search` 签名扩展为 `search(query, top_k, allowed)`：`allowed` 是候选下标白名单，索引层只在白名单内打分——BM25/embedding/hybrid/Qdrant 四个后端一致支持。
-- `rag_search` 新增 `topic` 参数：用户查询时除向量/词法外可附加主题过滤，实现「先按主题路由、再精准检索」。
-- Qdrant 后端的 payload 已存 `stable_id` 与 `content_hash`，为后续把 `topic` 也写入 payload 做服务端过滤预留了位置。
+每个 chunk 可附带结构化元数据（来源、更新时间、部门等），检索时可组合语义相似度 + 业务条件做「先按业务路由、再精准检索」。
+
+- **元数据来源**：`RagChunk` 新增 `metadata: dict[str, str]`。`load_dir` 自动填充 `source`（相对路径）与 `updated_at`（mtime 的 `YYYY-MM`），并解析 Markdown frontmatter（`---` 之间的 `key: value`）取显式字段如 `department` / `category`。
+- **过滤语法（平铺键值）**：`rag_search` 新增 `filter` 参数，键为字段名、值为字符串或字符串列表（列表=任一匹配）。平铺 JSON 比嵌套布尔表达式对 LLM 更友好、更不易生成错。
+- **后端执行**：`RagStore.search(query, top_k, filter=...)` 把 filter 翻译成命中 chunk 的下标白名单（`_match`），`RagIndex.search(query, top_k, allowed)` 只在白名单内打分——BM25/embedding/hybrid/Qdrant 四后端一致。`topic` 参数保留并归并为 `metadata` 的一个默认键，向后兼容。
+
+**关键：如何让 LLM 自己懂何时用过滤条件** —— 靠「词汇表 + 决策规则」双注入，而非更聪明的 prompt：
+
+1. **词汇表**：`RagStore.metadata_manifest()` 枚举每个可过滤字段及其去重后的全部取值，拼进工具 `description`。LLM 看到 `department: 研发、财务` 就不会幻觉出不存在的值。
+2. **决策规则**：工具 `description` 写明启发式——「问题里出现某个字段取值时才带对应 filter，否则留空」。
 
 ```python
-# 示例：只检索「部署手册」主题下的 chunk
-result = await store.search("运行步骤", topic="部署手册")
+# 示例：只检索「研发」部门的 chunk
+result = await store.search("运行步骤", filter={"department": "研发"})
+
+# 词汇表注入后，工具 description 形如：
+#   可过滤字段及其取值：
+#   - department: 研发、财务
+#   - source: rd.md、fin.md
+#   - updated_at: 2026-09
 ```
+
+> Qdrant 后端的 payload 已存 `stable_id` / `content_hash`；把 `metadata` 也写入 payload 后，可将 `filter` 下推为服务端 payload filter（`FieldCondition`），在服务端「先剪枝、再算相似度」，进一步规模化。
 
 三层不互斥、可叠加：层 1 保证「会去检索」，层 2 保证「知道查什么」，层 3 保证「查得准、可规模化」。
 
@@ -380,10 +394,10 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 | 文件 | 变更 |
 |------|------|
 | `src/kama_claude/core/rag/__init__.py` | 新增，导出模块 |
-| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取，§5.3） |
-| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分词/分块/TF-IDF + `manifest()` + `topic` 过滤 |
+| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（§5.3） |
+| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 结构化过滤 |
 | `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2） |
-| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单 + `topic` 参数） |
+| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表 + `filter` 参数） |
 | `src/kama_claude/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `KAMA_RAG_*` 环境变量 |
 | `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |
 | `src/kama_claude/core/context.py` | 新增 `rag_instruction`/`rag_manifest` 字段并注入系统提示（§5.3） |

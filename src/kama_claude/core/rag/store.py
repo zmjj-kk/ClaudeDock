@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kama_claude.core.rag.chunk import extract_topics, split_semantic
+from kama_claude.core.rag.chunk import extract_topics, parse_frontmatter, split_semantic
 from kama_claude.core.rag.index import Bm25Index, RagIndex, hash_text
 from kama_claude.core.rag.rerank import Reranker
 
@@ -26,6 +27,7 @@ class RagChunk:
     text: str
     content_hash: str  # chunk 文本的 sha256，供向量缓存按内容复用
     topic: str = ""  # 所属主题标签（文档级），供过滤检索与清单展示
+    metadata: dict[str, str] = field(default_factory=dict)  # 结构化元数据（来源/时间/部门等）
 
 
 class RagStore:
@@ -91,17 +93,23 @@ class RagStore:
             # 提取文档级主题：取首个标题作为归属主题，其余标题并入全局清单
             doc_topics = extract_topics(raw)
             doc_topic = doc_topics[0] if doc_topics else ""
+            # 结构化元数据：来源路径、更新时间、frontmatter 显式字段
+            meta = {"source": doc_id, "updated_at": self._updated_at(f)}
+            meta.update(parse_frontmatter(raw))
             next_docs[doc_id] = {
                 "path": str(f),
                 "content_hash": content_hash,
                 "chunks": texts,
                 "topic": doc_topic,
+                "metadata": meta,
             }
             topics.extend(doc_topics)
 
-        # 用文档主题回填各 chunk 的 topic 标签（chunk 在 _chunks_from 时尚未知主题）
+        # 用文档主题与元数据回填各 chunk（chunk 在 _chunks_from 时尚未知）
         for c in chunks:
-            c.topic = next_docs[c.doc_id].get("topic", "")
+            rec = next_docs[c.doc_id]
+            c.topic = rec.get("topic", "")
+            c.metadata = dict(rec.get("metadata", {}))
 
         self._chunks = chunks
         self._topics = _dedupe(topics)
@@ -111,16 +119,23 @@ class RagStore:
         )
         return len(chunks)
 
-    # 检索与 query 最相似的 top_k 个 chunk；topic 非空时先按主题过滤候选集
-    async def search(self, query: str, top_k: int = 3, topic: str = "") -> list[RagChunk]:
+    # 检索与 query 最相似的 top_k 个 chunk；filter 非空时按元数据过滤候选集
+    async def search(
+        self,
+        query: str,
+        top_k: int = 3,
+        topic: str = "",
+        filter: dict[str, object] | None = None,
+    ) -> list[RagChunk]:
         if not self._chunks or not query.strip():
             return []
-        # 主题过滤：命中 chunk 的下标白名单，供索引层只在这些下标内打分
-        allowed: set[int] | None = None
+        # 过滤：把 topic 与 filter 合并为匹配条件，翻译成命中 chunk 下标白名单
+        cond = dict(filter) if filter else {}
         if topic:
-            allowed = {i for i, c in enumerate(self._chunks) if c.topic == topic}
-            if not allowed:
-                return []
+            cond["topic"] = topic
+        allowed = self._match(cond) if cond else None
+        if allowed is not None and not allowed:
+            return []
         if self._reranker is None:
             scores = await self._index.search(query, top_k, allowed)
             return [self._chunks[i] for i, _ in scores]
@@ -136,6 +151,43 @@ class RagStore:
         if not self._topics:
             return ""
         return "知识库当前覆盖主题：" + "、".join(self._topics)
+
+    # 返回可过滤字段及其全部取值（词汇表），供 LLM 生成合法过滤条件
+    def metadata_manifest(self) -> str:
+        fields: dict[str, set[str]] = {}
+        for c in self._chunks:
+            for k, v in c.metadata.items():
+                fields.setdefault(k, set()).add(v)
+        if not fields:
+            return ""
+        lines = ["可过滤字段及其取值："]
+        for k, vals in sorted(fields.items()):
+            lines.append(f"- {k}: " + "、".join(sorted(vals)))
+        return "\n".join(lines)
+
+    # 把过滤条件翻译为命中 chunk 的下标集合；任一字段不匹配则剔除
+    def _match(self, cond: dict[str, object]) -> set[int]:
+        out: set[int] = set()
+        for i, c in enumerate(self._chunks):
+            ok = True
+            for k, v in cond.items():
+                want = set(v) if isinstance(v, list) else {v}
+                # topic 存在独立字段，其余走 metadata
+                actual = c.topic if k == "topic" else c.metadata.get(k)
+                if actual not in want:
+                    ok = False
+                    break
+            if ok:
+                out.add(i)
+        return out
+
+    # 返回文件 mtime 的 YYYY-MM 字符串，作 updated_at 元数据；IO 错误返回空
+    def _updated_at(self, f: Path) -> str:
+        try:
+            return datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m")
+        except OSError:
+            return ""
+
 
     # 用文本列表组装 RagChunk，补上稳定 id、doc_id 与内容 hash
     def _chunks_from(self, doc_id: str, source: str, texts: list[str]) -> list[RagChunk]:

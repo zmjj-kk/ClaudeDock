@@ -341,3 +341,76 @@ def test_context_system_prompt_injects_rag() -> None:
     prompt = ctx.system_prompt("base")
     assert "必须调用 rag_search" in prompt
     assert "知识库当前覆盖主题：部署" in prompt
+
+
+# 功能：验证 frontmatter 解析出 key: value 元数据，无 frontmatter 时返回空
+# 设计：用带 --- 包裹的文档与普通文档对比，断言显式字段被提取、非法行被忽略
+def test_parse_frontmatter() -> None:
+    from kama_claude.core.rag.chunk import parse_frontmatter
+
+    text = "---\ndepartment: 研发\nupdated: 2026-09\n---\n# 正文\n"
+    assert parse_frontmatter(text) == {"department": "研发", "updated": "2026-09"}
+    assert parse_frontmatter("# 无 frontmatter\n正文") == {}
+
+
+# 功能：验证 load_dir 填充结构化元数据（source/updated_at/frontmatter）
+# 设计：写带 frontmatter 的文档，断言 chunk.metadata 含自动 source 与显式 department
+async def test_store_metadata_populated(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text(
+        "---\ndepartment: 研发\n---\n# 部署手册\n\n运行步骤", encoding="utf-8"
+    )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    assert store._chunks
+    meta = store._chunks[0].metadata
+    assert meta["department"] == "研发"
+    assert meta["source"] == "a.md"
+    assert "updated_at" in meta
+
+
+# 功能：验证结构化 filter 过滤：按 department 字段只返回命中部门的 chunk
+# 设计：两个不同部门文档，用 filter={"department": "研发"} 检索，断言结果只含研发文档
+async def test_store_search_metadata_filter(tmp_path: Path) -> None:
+    (tmp_path / "rd.md").write_text(
+        "---\ndepartment: 研发\n---\n# 部署手册\n\n运行步骤", encoding="utf-8"
+    )
+    (tmp_path / "fin.md").write_text(
+        "---\ndepartment: 财务\n---\n# 报销流程\n\n提交单据", encoding="utf-8"
+    )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    results = await store.search("步骤", filter={"department": "研发"})
+    assert results
+    assert all(c.metadata["department"] == "研发" for c in results)
+    assert {c.source for c in results} == {str(tmp_path / "rd.md")}
+
+
+# 功能：验证 metadata_manifest 枚举每个字段及其取值，供 LLM 生成合法过滤条件
+# 设计：两个部门文档，断言词汇表含 department 字段与两个取值
+async def test_store_metadata_manifest(tmp_path: Path) -> None:
+    (tmp_path / "rd.md").write_text(
+        "---\ndepartment: 研发\n---\n# 部署手册", encoding="utf-8"
+    )
+    (tmp_path / "fin.md").write_text(
+        "---\ndepartment: 财务\n---\n# 报销流程", encoding="utf-8"
+    )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    mm = store.metadata_manifest()
+    assert "department" in mm
+    assert "研发" in mm
+    assert "财务" in mm
+
+
+# 功能：验证工具 description 同时含主题清单与元数据词汇表，帮助 LLM 决策过滤条件
+# 设计：带 frontmatter 文档，断言 description 含 manifest 与 metadata_manifest 两段
+async def test_rag_search_tool_description_has_metadata(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text(
+        "---\ndepartment: 研发\n---\n# 部署手册\n\n运行步骤", encoding="utf-8"
+    )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    tool = RagSearchTool(store, default_top_k=3)
+    assert "部署手册" in tool.description
+    assert "department" in tool.description
+    assert "研发" in tool.description
