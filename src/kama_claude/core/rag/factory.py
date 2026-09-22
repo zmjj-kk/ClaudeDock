@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from kama_claude.core.config import RagConfig
+from kama_claude.core.llm.base import LLMProvider
 from kama_claude.core.rag.index import Bm25Index, HybridIndex, RagIndex, ZhipuEmbeddingIndex
+from kama_claude.core.rag.query import LlmQueryProcessor
 from kama_claude.core.rag.rerank import ZhipuReranker
 from kama_claude.core.rag.store import RagStore
 
@@ -50,15 +52,26 @@ def _build_reranker(rag: RagConfig) -> ZhipuReranker | None:
     )
 
 
-# 构建未加载的 RagStore（绑定选定后端与分块参数），rerank 覆盖参数供评测 A/B 用
+# 构建未加载的 RagStore（绑定选定后端与分块参数），rerank/query_enhance 覆盖参数供评测 A/B 用
 def build_store(
-    rag: RagConfig, *, retriever: str | None = None, rerank: bool | None = None
+    rag: RagConfig,
+    *,
+    retriever: str | None = None,
+    rerank: bool | None = None,
+    provider: LLMProvider | None = None,
+    query_enhance: bool | None = None,
 ) -> RagStore:
     use_rerank = rag.rerank_enabled if rerank is None else rerank
+    use_enhance = rag.query_enhance_enabled if query_enhance is None else query_enhance
+    processor = None
+    if use_enhance and provider is not None:
+        processor = LlmQueryProcessor(provider, expand_n=rag.query_expand_n)
     return RagStore(
         chunk_size=rag.chunk_size,
         chunk_overlap=rag.chunk_overlap,
         index=build_index(rag, retriever=retriever),
         reranker=_build_reranker(rag) if use_rerank else None,
         rerank_depth=rag.rerank_depth,
+        query_processor=processor,
+        query_depth=rag.query_depth,
     )

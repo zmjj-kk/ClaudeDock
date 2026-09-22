@@ -94,6 +94,9 @@ class RagConfig:
     vector_db: str = ""                # 向量数据库后端；留空走内置 JSON 缓存，可选 "qdrant"
     qdrant_url: str = ""               # Qdrant 服务地址；留空走本地 local mode（路径持久化）
     qdrant_path: str = "~/.kama/qdrant"  # Qdrant local mode 的持久化目录
+    query_enhance_enabled: bool = False  # 是否启用 LLM 查询改写+拓展（按量计费，默认关闭）
+    query_expand_n: int = 3            # 查询拓展生成的子查询条数（≥1）
+    query_depth: int = 10              # 多查询融合时每条子查询的召回候选数
 
 
 @dataclass
@@ -336,6 +339,7 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             "embedding_batch_size", "index_cache", "retriever",
             "rerank_enabled", "rerank_model", "rerank_depth",
             "vector_db", "qdrant_url", "qdrant_path",
+            "query_enhance_enabled", "query_expand_n", "query_depth",
         }
         if unknown_rag:
             raise SystemExit(f"Unknown [rag] keys: {', '.join(sorted(unknown_rag))}")
@@ -436,6 +440,25 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             if not isinstance(val, str):
                 raise SystemExit("Config error: rag.qdrant_path must be a string")
             config.rag.qdrant_path = val
+        if "query_enhance_enabled" in rag:
+            val = rag["query_enhance_enabled"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: rag.query_enhance_enabled must be a boolean")
+            config.rag.query_enhance_enabled = val
+        if "query_expand_n" in rag:
+            val = rag["query_expand_n"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: rag.query_expand_n must be a positive integer"
+                )
+            config.rag.query_expand_n = val
+        if "query_depth" in rag:
+            val = rag["query_depth"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: rag.query_depth must be a positive integer"
+                )
+            config.rag.query_depth = val
 
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
@@ -701,3 +724,39 @@ def _apply_env(config: KamaConfig) -> None:
     rag_qdrant_path = os.environ.get("KAMA_RAG_QDRANT_PATH")
     if rag_qdrant_path is not None:
         config.rag.qdrant_path = rag_qdrant_path
+
+    rag_query_enhance = os.environ.get("KAMA_RAG_QUERY_ENHANCE")
+    if rag_query_enhance is not None:
+        config.rag.query_enhance_enabled = rag_query_enhance.lower() not in ("0", "false", "no")
+
+    rag_query_expand_n = os.environ.get("KAMA_RAG_QUERY_EXPAND_N")
+    if rag_query_expand_n is not None:
+        try:
+            rag_query_expand_n_val = int(rag_query_expand_n)
+            if rag_query_expand_n_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_QUERY_EXPAND_N must be a positive integer, "
+                    f"got: {rag_query_expand_n!r}"
+                )
+            config.rag.query_expand_n = rag_query_expand_n_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_QUERY_EXPAND_N must be an integer, "
+                f"got: {rag_query_expand_n!r}"
+            )
+
+    rag_query_depth = os.environ.get("KAMA_RAG_QUERY_DEPTH")
+    if rag_query_depth is not None:
+        try:
+            rag_query_depth_val = int(rag_query_depth)
+            if rag_query_depth_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_RAG_QUERY_DEPTH must be a positive integer, "
+                    f"got: {rag_query_depth!r}"
+                )
+            config.rag.query_depth = rag_query_depth_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_RAG_QUERY_DEPTH must be an integer, "
+                f"got: {rag_query_depth!r}"
+            )

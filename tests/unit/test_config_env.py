@@ -109,3 +109,27 @@ def test_rag_rerank_depth_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("KAMA_RAG_RERANK_DEPTH", "0")
     with pytest.raises(SystemExit):
         get_config()
+
+
+# 功能：验证 KAMA_RAG_QUERY_* 环境变量正确覆盖 RagConfig 的查询增强字段
+# 设计：一次性设置三个 query 增强环境变量，断言 enabled/expand_n/depth 均被解析并覆盖默认值
+def test_rag_query_enhance_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KAMA_RAG_QUERY_ENHANCE", "1")
+    monkeypatch.setenv("KAMA_RAG_QUERY_EXPAND_N", "5")
+    monkeypatch.setenv("KAMA_RAG_QUERY_DEPTH", "20")
+
+    cfg = get_config()
+
+    assert cfg.rag.query_enhance_enabled is True
+    assert cfg.rag.query_expand_n == 5
+    assert cfg.rag.query_depth == 20
+
+
+# 功能：验证 KAMA_RAG_QUERY_EXPAND_N 为非正整数时硬退出
+# 设计：设 expand_n=0（非法），断言 get_config 抛 SystemExit，与其它 RAG 数值键校验一致
+def test_rag_query_expand_n_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KAMA_RAG_QUERY_EXPAND_N", "0")
+    with pytest.raises(SystemExit):
+        get_config()

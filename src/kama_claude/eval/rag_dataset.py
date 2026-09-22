@@ -12,6 +12,7 @@ class RagEvalCase(BaseModel):
     query: str  # 检索查询
     relevant_docs: list[str]  # 相关文档 doc_id（相对知识库根目录），供 Hit@K/MRR/Recall 判定
     ground_truth: str = ""  # 标准答案，供 RAGAs ContextRecall；检索层评测可为空
+    filter: dict[str, object] = {}  # 可选元数据过滤条件：评测"带约束查询"时检索是否正确收窄
 
 
 # 从 JSONL 逐行加载评测集；缺失文件返回空列表，非法行抛 ValueError 并带行号

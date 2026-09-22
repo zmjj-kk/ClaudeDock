@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from kama_claude.eval.rag_metrics import evaluate_retrieval, hit_at_k, mrr, recall_at_k
+from kama_claude.eval.rag_metrics import (
+    evaluate_retrieval,
+    filter_respect_rate,
+    hit_at_k,
+    mrr,
+    recall_at_k,
+)
 
 
 # 功能：验证 Hit@K 在 top-K 命中相关文档时返回 1，否则返回 0
@@ -39,3 +45,11 @@ def test_evaluate_retrieval() -> None:
     assert out["mrr"] == 0.5
     assert out["recall_at_k"] == 0.75
     assert evaluate_retrieval([], k=2) == {"hit_at_k": 0.0, "mrr": 0.0, "recall_at_k": 0.0}
+
+
+# 功能：验证 filter_respect_rate 计算 top-K 中命中允许集合的文档占比
+# 设计：部分命中断言 0.5，全命中断言 1.0，空结果/空列表断言合规不越界
+def test_filter_respect_rate() -> None:
+    assert filter_respect_rate(["a", "c"], {"a", "b"}, 2) == 0.5
+    assert filter_respect_rate(["a", "b"], {"a", "b"}, 2) == 1.0
+    assert filter_respect_rate([], {"a"}, 2) == 1.0

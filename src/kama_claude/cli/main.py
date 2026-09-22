@@ -51,6 +51,14 @@ def main() -> None:
     eval_parser.add_argument(
         "--rerank", action="store_true", help="检索层对比 baseline 与 +rerank 精排"
     )
+    eval_parser.add_argument(
+        "--filter-check", action="store_true", help="检索层额外计算元数据过滤合规率"
+    )
+    eval_parser.add_argument(
+        "--query-enhance",
+        action="store_true",
+        help="检索层对比 baseline 与 +query增强(改写+拓展) 的召回差异",
+    )
 
     args = parser.parse_args()
 

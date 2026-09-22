@@ -4,8 +4,9 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from kama_claude.core.rag.filter import is_range
 from kama_claude.core.rag.index import RagIndex, ZhipuEmbeddingIndex, hash_text
 
 # Qdrant 点的默认集合名
@@ -21,8 +22,8 @@ def _point_id(sid: str) -> str:
     return str(uuid.uuid5(_NS, sid))
 
 
-# 组装 Qdrant 点 payload：稳定 id、内容 hash、可过滤元数据（含 topic）
-def _payload(sid: str, content_hash: str, meta: dict[str, str]) -> dict[str, Any]:
+# 组装 Qdrant 点 payload：稳定 id、内容 hash、可过滤元数据（值已类型化）
+def _payload(sid: str, content_hash: str, meta: dict[str, Any]) -> dict[str, Any]:
     return {"stable_id": sid, "content_hash": content_hash, "meta": meta}
 
 
@@ -86,7 +87,7 @@ class QdrantIndex(RagIndex):
         texts: list[str],
         ids: list[str],
         fingerprint: str,
-        metas: list[dict[str, str]] | None = None,
+        metas: list[dict[str, Any]] | None = None,
     ) -> None:
         del fingerprint
         await asyncio.to_thread(self._ensure_collection)
@@ -162,7 +163,7 @@ class QdrantIndex(RagIndex):
                     break
         return out
 
-    # 把键值过滤条件转成 Qdrant 服务端 Filter；单值为精确匹配，列表为任一匹配
+    # 把键值过滤条件转成 Qdrant 服务端 Filter；单值精确、列表任一、字典为范围
     def _build_filter(self, cond: dict[str, object] | None) -> Any:
         if not cond:
             return None
@@ -170,6 +171,14 @@ class QdrantIndex(RagIndex):
         for key, val in cond.items():
             # 可过滤字段统一存于 payload.meta 命名空间下
             field = f"meta.{key}"
+            if is_range(val):
+                must.append(
+                    self._models.FieldCondition(
+                        key=field,
+                        range=self._build_range(cast(dict[str, object], val)),
+                    )
+                )
+                continue
             match: Any
             if isinstance(val, list):
                 match = self._models.MatchAny(any=[str(v) for v in val])
@@ -177,3 +186,16 @@ class QdrantIndex(RagIndex):
                 match = self._models.MatchValue(value=str(val))
             must.append(self._models.FieldCondition(key=field, match=match))
         return self._models.Filter(must=must)
+
+    # 把范围条件转成 Qdrant Range；布尔值转小写字符串，数值/字符串原样透传
+    def _build_range(self, cond: dict[str, object]) -> Any:
+        def coerce(v: object) -> Any:
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            return v
+
+        kwargs: dict[str, Any] = {}
+        for op in ("gt", "gte", "lt", "lte"):
+            if op in cond:
+                kwargs[op] = coerce(cond[op])
+        return self._models.Range(**kwargs)

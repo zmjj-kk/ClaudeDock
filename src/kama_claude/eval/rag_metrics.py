@@ -30,3 +30,11 @@ def evaluate_retrieval(rows: list[tuple[list[str], set[str]]], k: int) -> dict[s
     mrr_sum = sum(mrr(r, rel) for r, rel in rows) / n
     rec = sum(recall_at_k(r, rel, k) for r, rel in rows) / n
     return {"hit_at_k": hit, "mrr": mrr_sum, "recall_at_k": rec}
+
+
+# 计算过滤合规率：top-K 结果中命中"允许集合"的文档占比，衡量过滤是否真正收窄候选集
+def filter_respect_rate(ranked_docs: list[str], allowed: set[str], k: int) -> float:
+    if k <= 0 or not ranked_docs:
+        return 1.0  # 无结果视为合规（空结果不越界）
+    top = ranked_docs[:k]
+    return len([d for d in top if d in allowed]) / len(top)

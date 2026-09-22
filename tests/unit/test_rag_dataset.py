@@ -21,8 +21,23 @@ def test_load_dataset_valid(tmp_path: Path) -> None:
     assert len(cases) == 2
     assert cases[0].id == "q1"
     assert cases[0].ground_truth == ""
+    assert cases[0].filter == {}
     assert cases[1].ground_truth == "..."
     assert load_dataset(tmp_path / "missing.jsonl") == []
+
+
+# 功能：验证 load_dataset 解析可选的 filter 字段（元数据过滤条件）
+# 设计：带 filter 的行断言解析为 dict，缺省行 filter 为空 dict
+def test_load_dataset_filter_field(tmp_path: Path) -> None:
+    f = tmp_path / "rag_queries.jsonl"
+    f.write_text(
+        '{"id":"q1","query":"怎么配置？","relevant_docs":["a.md"],'
+        '"filter":{"department":"研发"}}\n',
+        encoding="utf-8",
+    )
+    cases = load_dataset(f)
+    assert len(cases) == 1
+    assert cases[0].filter == {"department": "研发"}
 
 
 # 功能：验证 load_dataset 对非法行（坏 JSON / 缺必填字段）抛 ValueError

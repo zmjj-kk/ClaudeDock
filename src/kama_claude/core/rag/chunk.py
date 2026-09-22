@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from kama_claude.core.rag.filter import MetaValue
+
 # 围栏代码块起始/结束行（``` 或 ~~~，可带语言标识）
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 # Markdown 标题行（1-6 级，标题文字非空）
@@ -135,23 +137,38 @@ def split_semantic(text: str, size: int, overlap: int) -> list[str]:
     return _merge_units(units, size, overlap)
 
 
-# 解析 Markdown frontmatter（--- 包着的 key: value 块），返回 dict；无或格式错返回空
-def parse_frontmatter(text: str) -> dict[str, str]:
+# 解析 Markdown frontmatter（--- 包着的 key: value 块）；值按标量类型推断，无或格式错返回空
+def parse_frontmatter(text: str) -> dict[str, MetaValue]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}
-    meta: dict[str, str] = {}
+    meta: dict[str, MetaValue] = {}
     for line in lines[1:]:
         stripped = line.strip()
         if stripped == "---":
             break
         m = _FRONTMATTER_KEY_RE.match(stripped)
         if m:
-            meta[m.group(1)] = m.group(2).strip()
+            meta[m.group(1)] = _coerce(m.group(2).strip())
     return meta
 
 
-# 提取文档的主题标签：各级标题文本（去 # 与空白）；无标题时退回首个非空行
+# 把 frontmatter 原始字符串值推断为标量：bool / int / float，否则保持字符串
+def _coerce(raw: str) -> MetaValue:
+    low = raw.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
+
+
+# 提取文档的主题标签（仅用于 manifest 清单展示，不作过滤条件）：各级标题文本，无标题退回首行
 def extract_topics(text: str) -> list[str]:
     topics: list[str] = []
     for line in text.splitlines():

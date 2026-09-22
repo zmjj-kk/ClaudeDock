@@ -8,7 +8,7 @@ from pathlib import Path
 
 from kama_claude.core.bus.events import RunFinishedEvent, RunStartedEvent
 from kama_claude.core.compact.compactor import Compactor
-from kama_claude.core.config import KamaConfig
+from kama_claude.core.config import KamaConfig, RagConfig
 from kama_claude.core.context import ExecutionContext
 from kama_claude.core.events.bus import EventBus, EventHandler
 from kama_claude.core.events.writer import EventWriter
@@ -154,7 +154,7 @@ class AgentRunner:
         store = self._rag_store
         if store is None:
             rag = self._config.rag
-            store = build_store(rag)
+            store = build_store(rag, provider=self._query_enhance_provider(rag))
             try:
                 await store.load_dir(Path(rag.knowledge_dir).expanduser())
             except Exception:
@@ -162,6 +162,17 @@ class AgentRunner:
                 logging.getLogger(__name__).exception("RAG index build failed")
             self._rag_store = store
         return store
+
+    # 查询增强启用时惰性构建 LLM provider；未注入或创建失败返回 None，安全降级为不增强
+    def _query_enhance_provider(self, rag: RagConfig) -> LLMProvider | None:
+        if not rag.query_enhance_enabled:
+            return None
+        if self._provider is not None:
+            return self._provider
+        try:
+            return AnthropicProvider(self._config.llm.default_model)
+        except SystemExit:
+            return None
 
     # 执行一次完整的 agent run（委托给 run_and_capture，忽略返回值）
     async def run(self, goal: str, *, run_id: str | None = None) -> None:

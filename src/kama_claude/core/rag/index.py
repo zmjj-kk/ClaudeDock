@@ -8,6 +8,7 @@ import math
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -50,6 +51,17 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+# 用 RRF 按排名融合多路 (chunk 下标, 分数) 召回结果，返回按融合分降序的 [(idx, score)]
+def rrf_fuse(
+    ranked_lists: list[list[tuple[int, float]]], *, rrf_k: int = 60
+) -> list[tuple[int, float]]:
+    fused: dict[int, float] = {}
+    for ranked in ranked_lists:
+        for rank, (idx, _s) in enumerate(ranked):
+            fused[idx] = fused.get(idx, 0.0) + 1.0 / (rrf_k + rank + 1)
+    return sorted(fused.items(), key=lambda x: -x[1])
+
+
 class RagIndex(ABC):
     # 基于语料构建索引；ids 为稳定标识，fingerprint 用于缓存校验，metas 为各 chunk 可过滤字段
     @abstractmethod
@@ -58,7 +70,7 @@ class RagIndex(ABC):
         texts: list[str],
         ids: list[str],
         fingerprint: str,
-        metas: list[dict[str, str]] | None = None,
+        metas: list[dict[str, Any]] | None = None,
     ) -> None: ...
 
     # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表；
@@ -80,30 +92,31 @@ class Bm25Index(RagIndex):
         self._b = b
         self._n = 0
         self._df: dict[str, int] = {}
-        self._doc_tf: list[dict[str, int]] = []
+        # 词项倒排表：token -> [(doc_idx, tf)]，按 doc_idx 升序，检索时只遍历命中词项
+        self._postings: dict[str, list[tuple[int, int]]] = {}
         self._doc_len: list[int] = []
         self._avgdl = 0.0
 
-    # 统计每篇文档词频、文档长度与全局 df，并计算平均文档长度
+    # 统计每篇文档词频、文档长度与全局 df，同步构建词项倒排表，并计算平均文档长度
     async def build(
         self,
         texts: list[str],
         ids: list[str],
         fingerprint: str,
-        metas: list[dict[str, str]] | None = None,
+        metas: list[dict[str, Any]] | None = None,
     ) -> None:
         del ids, fingerprint, metas
         self._n = len(texts)
         self._df = {}
-        self._doc_tf = []
+        self._postings = {}
         self._doc_len = []
-        for text in texts:
+        for i, text in enumerate(texts):
             counts: dict[str, int] = {}
             for tok in _tokenize(text):
                 counts[tok] = counts.get(tok, 0) + 1
-            self._doc_tf.append(counts)
             self._doc_len.append(sum(counts.values()) or 1)
-            for tok in counts:
+            for tok, tf in counts.items():
+                self._postings.setdefault(tok, []).append((i, tf))
                 self._df[tok] = self._df.get(tok, 0) + 1
         self._avgdl = sum(self._doc_len) / self._n if self._n else 0.0
 
@@ -112,7 +125,7 @@ class Bm25Index(RagIndex):
         df = self._df.get(tok, 0)
         return math.log(1 + (self._n - df + 0.5) / (df + 0.5))
 
-    # 对每篇文档累加查询词项的 BM25 得分，按分数取 top_k
+    # 用倒排表 TAAT 累加查询词项得分：只遍历命中词项的文档，不再全量扫描，再按分数取 top_k
     async def search(
         self,
         query: str,
@@ -123,24 +136,19 @@ class Bm25Index(RagIndex):
         del filter
         if self._n == 0 or not query.strip():
             return []
-        q_tokens = set(_tokenize(query))
-        scores: list[tuple[float, int]] = []
-        for i in range(self._n):
-            if allowed is not None and i not in allowed:
-                continue
-            tf = self._doc_tf[i]
-            dl = self._doc_len[i]
-            s = 0.0
-            for t in q_tokens:
-                f = tf.get(t)
-                if f:
-                    num = f * (self._k1 + 1)
-                    den = f + self._k1 * (1 - self._b + self._b * dl / self._avgdl)
-                    s += self._idf(t) * num / den
-            if s > 0.0:
-                scores.append((s, i))
-        scores.sort(key=lambda x: -x[0])
-        return [(i, s) for s, i in scores[:top_k]]
+        acc: dict[int, float] = {}
+        for t in set(_tokenize(query)):
+            idf = self._idf(t)
+            for i, tf in self._postings.get(t, ()):
+                if allowed is not None and i not in allowed:
+                    continue
+                dl = self._doc_len[i]
+                num = tf * (self._k1 + 1)
+                den = tf + self._k1 * (1 - self._b + self._b * dl / self._avgdl)
+                acc[i] = acc.get(i, 0.0) + idf * num / den
+        # 分数降序、同分按下标升序，保证结果确定且与原全量扫描的并列顺序一致
+        ranked = sorted(acc.items(), key=lambda x: (-x[1], x[0]))
+        return [(i, s) for i, s in ranked[:top_k] if s > 0.0]
 
 
 class ZhipuEmbeddingIndex(RagIndex):
@@ -173,7 +181,7 @@ class ZhipuEmbeddingIndex(RagIndex):
         texts: list[str],
         ids: list[str],
         fingerprint: str,
-        metas: list[dict[str, str]] | None = None,
+        metas: list[dict[str, Any]] | None = None,
     ) -> None:
         del ids, fingerprint, metas
         if not texts:
@@ -294,7 +302,7 @@ class HybridIndex(RagIndex):
         texts: list[str],
         ids: list[str],
         fingerprint: str,
-        metas: list[dict[str, str]] | None = None,
+        metas: list[dict[str, Any]] | None = None,
     ) -> None:
         await self._lexical.build(texts, ids, fingerprint, metas)
         await self._dense.build(texts, ids, fingerprint, metas)
@@ -309,10 +317,4 @@ class HybridIndex(RagIndex):
     ) -> list[tuple[int, float]]:
         lex = await self._lexical.search(query, self._depth, allowed, filter)
         den = await self._dense.search(query, self._depth, allowed, filter)
-        fused: dict[int, float] = {}
-        for rank, (idx, _s) in enumerate(lex):
-            fused[idx] = fused.get(idx, 0.0) + 1.0 / (self._rrf_k + rank + 1)
-        for rank, (idx, _s) in enumerate(den):
-            fused[idx] = fused.get(idx, 0.0) + 1.0 / (self._rrf_k + rank + 1)
-        ranked = sorted(fused.items(), key=lambda x: -x[1])
-        return [(idx, s) for idx, s in ranked[:top_k]]
+        return rrf_fuse([lex, den], rrf_k=self._rrf_k)[:top_k]

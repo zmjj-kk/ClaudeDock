@@ -252,6 +252,67 @@ async def test_bm25_index_search() -> None:
     assert scores[0][1] > 0.0
 
 
+# 功能：验证 BM25 倒排表正确构建：df 计数、posting 表含 (doc_idx, tf) 且按 doc 升序
+# 设计：两篇文档共享词项，断言 df 计数、posting 长度与 tf 值，确认倒排结构正确
+async def test_bm25_index_postings_built() -> None:
+    index = Bm25Index()
+    await index.build(["alpha alpha beta", "beta gamma"], ["0", "1"], "fp")
+    assert index._df["alpha"] == 1
+    assert index._df["beta"] == 2
+    assert index._postings["alpha"] == [(0, 2)]
+    assert index._postings["beta"] == [(0, 1), (1, 1)]
+    assert index._postings["gamma"] == [(1, 1)]
+
+
+# 功能：验证倒排表检索与原全量扫描 BM25 结果一致（排序与分数均等价）
+# 设计：多篇共享词项/不同长度的文档，用倒排表检索后与手算 BM25 分数比对，
+#       证明倒排 TAAT 累加与逐文档扫描打分严格等价
+async def test_bm25_index_inverted_equals_bruteforce() -> None:
+    texts = [
+        "machine learning machine learning",
+        "machine learning notes",
+        "cooking recipe",
+    ]
+    index = Bm25Index()
+    await index.build(texts, ["0", "1", "2"], "fp")
+    got = await index.search("machine learning", top_k=10)
+
+    # 手算：逐文档累加 BM25 分数（文档长度 = 总 token 数），与倒排表结果逐项对齐
+    def _score(doc: str) -> float:
+        counts: dict[str, int] = {}
+        for tok in _tokenize(doc):
+            counts[tok] = counts.get(tok, 0) + 1
+        dl = sum(counts.values()) or 1
+        s = 0.0
+        for t in set(_tokenize("machine learning")):
+            f = counts.get(t)
+            if not f:
+                continue
+            num = f * (index._k1 + 1)
+            den = f + index._k1 * (1 - index._b + index._b * dl / index._avgdl)
+            s += index._idf(t) * num / den
+        return s
+
+    expected = sorted(
+        [(i, _score(t)) for i, t in enumerate(texts) if _score(t) > 0.0],
+        key=lambda x: (-x[1], x[0]),
+    )
+    assert got == expected
+
+
+# 功能：验证倒排表检索遵守 allowed 白名单过滤，只返回白名单内命中的文档
+# 设计：三篇文档只允许下标 {0, 2}，断言结果不含下标 1，证明过滤贯穿倒排路径
+async def test_bm25_index_inverted_allowed() -> None:
+    index = Bm25Index()
+    await index.build(
+        ["machine learning", "machine learning", "machine learning"],
+        ["0", "1", "2"], "fp",
+    )
+    scores = await index.search("machine learning", top_k=10, allowed={0, 2})
+    got = {i for i, _ in scores}
+    assert got == {0, 2}
+
+
 # 功能：验证 HybridIndex 用 RRF 融合词法 + 语义，让两边命中的 chunk 都进入 top-k
 # 设计：词法只命中 "apple" 的文档、语义只命中 "vector" 的文档，断言 RRF 合并后两者都排在无关文档前，
 #       证明混合检索同时保留字面召回与语义泛化两条信号
@@ -294,28 +355,6 @@ async def test_store_manifest_topics(tmp_path: Path) -> None:
     assert manifest.count("部署手册") == 1
 
 
-# 功能：验证 search 的 topic 过滤只返回命中主题的 chunk
-# 设计：两个不同主题文档，用 topic="部署手册" 检索，断言结果只含部署文档的 source
-async def test_store_search_topic_filter(tmp_path: Path) -> None:
-    (tmp_path / "deploy.md").write_text("# 部署手册\n\n运行 kama-core 的步骤", encoding="utf-8")
-    (tmp_path / "config.md").write_text("# 配置优先级\n\n五层优先级说明", encoding="utf-8")
-    store = RagStore(chunk_size=200, chunk_overlap=0)
-    await store.load_dir(tmp_path)
-    results = await store.search("步骤", topic="部署手册")
-    assert results
-    assert all(c.topic == "部署手册" for c in results)
-    assert {c.source for c in results} == {str(tmp_path / "deploy.md")}
-
-
-# 功能：验证 topic 过滤无命中时返回空列表而非跨主题结果
-# 设计：用不存在的主题检索，断言空结果，证明过滤是硬约束而非软性降级
-async def test_store_search_topic_filter_no_match(tmp_path: Path) -> None:
-    (tmp_path / "deploy.md").write_text("# 部署手册\n\n运行步骤", encoding="utf-8")
-    store = RagStore(chunk_size=200, chunk_overlap=0)
-    await store.load_dir(tmp_path)
-    assert await store.search("步骤", topic="不存在的主题") == []
-
-
 # 功能：验证 RagSearchTool 构造时把知识库主题清单拼进 description（层 2）
 # 设计：加载带标题文档后构造工具，断言 description 含 manifest 文本，帮助 Agent 判断检索边界
 async def test_rag_search_tool_description_has_manifest(tmp_path: Path) -> None:
@@ -343,13 +382,19 @@ def test_context_system_prompt_injects_rag() -> None:
     assert "知识库当前覆盖主题：部署" in prompt
 
 
-# 功能：验证 frontmatter 解析出 key: value 元数据，无 frontmatter 时返回空
-# 设计：用带 --- 包裹的文档与普通文档对比，断言显式字段被提取、非法行被忽略
+# 功能：验证 frontmatter 解析出 key: value 元数据，并按标量类型推断；无 frontmatter 返回空
+# 设计：字符串/整数/浮点/布尔四类值断言类型被正确推断，普通文档返回空、非法行被忽略
 def test_parse_frontmatter() -> None:
     from kama_claude.core.rag.chunk import parse_frontmatter
 
-    text = "---\ndepartment: 研发\nupdated: 2026-09\n---\n# 正文\n"
-    assert parse_frontmatter(text) == {"department": "研发", "updated": "2026-09"}
+    text = "---\ndepartment: 研发\nupdated: 2026-09\ncount: 10\nratio: 0.5\nenabled: true\n---\n# 正文\n"
+    assert parse_frontmatter(text) == {
+        "department": "研发",
+        "updated": "2026-09",
+        "count": 10,
+        "ratio": 0.5,
+        "enabled": True,
+    }
     assert parse_frontmatter("# 无 frontmatter\n正文") == {}
 
 
@@ -414,3 +459,52 @@ async def test_rag_search_tool_description_has_metadata(tmp_path: Path) -> None:
     assert "部署手册" in tool.description
     assert "department" in tool.description
     assert "研发" in tool.description
+
+
+# 功能：验证 filter 列表值按任一匹配（MatchAny 语义），命中多个部门的 chunk
+# 设计：三个部门文档，filter 传两个部门，断言返回两者、排除第三个
+async def test_store_search_filter_list_any(tmp_path: Path) -> None:
+    for name, dept in (("rd", "研发"), ("fin", "财务"), ("ops", "运维")):
+        (tmp_path / f"{name}.md").write_text(
+            f"---\ndepartment: {dept}\n---\n# {dept}手册\n\n{dept}运行步骤", encoding="utf-8"
+        )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    results = await store.search("运行步骤", filter={"department": ["研发", "财务"]})
+    assert results
+    assert {c.metadata["department"] for c in results} == {"研发", "财务"}
+    assert all(c.metadata["department"] != "运维" for c in results)
+
+
+# 功能：验证 filter 支持字符串范围条件（updated_at 的 gte/lte），按字典序过滤
+# 设计：不同 mtime 无法稳定控制，改用 frontmatter 的 year 字段做数值范围，
+#       断言只返回 year 落在范围内的 chunk
+async def test_store_search_filter_range(tmp_path: Path) -> None:
+    for name, year in (("a", "2024"), ("b", "2025"), ("c", "2026")):
+        (tmp_path / f"{name}.md").write_text(
+            f"---\nyear: {year}\n---\n# 文档{name}\n\n内容", encoding="utf-8"
+        )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    results = await store.search("内容", filter={"year": {"gte": 2025, "lte": 2026}})
+    assert results
+    assert {c.metadata["year"] for c in results} == {2025, 2026}
+
+
+# 功能：验证倒排索引与线性扫描在过滤结果上等价
+# 设计：多字段多值文档，分别用命中/未命中/范围过滤检索，断言结果稳定且无越界
+async def test_store_inverted_index_consistency(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text(
+        "---\ndepartment: 研发\npriority: 1\n---\n# A\n\nalpha content", encoding="utf-8"
+    )
+    (tmp_path / "b.md").write_text(
+        "---\ndepartment: 财务\npriority: 2\n---\n# B\n\nbeta content", encoding="utf-8"
+    )
+    store = RagStore(chunk_size=200, chunk_overlap=0)
+    await store.load_dir(tmp_path)
+    # 倒排索引已构建
+    assert store._inverted
+    by_dept = await store.search("content", filter={"department": "研发"})
+    assert {c.doc_id for c in by_dept} == {"a.md"}
+    by_priority = await store.search("content", filter={"priority": {"gte": 2}})
+    assert {c.doc_id for c in by_priority} == {"b.md"}

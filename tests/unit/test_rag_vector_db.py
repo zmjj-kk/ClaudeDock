@@ -87,3 +87,16 @@ async def test_qdrant_index_metadata_filter_any(tmp_path: Path) -> None:
         "machine learning", top_k=2, filter={"department": ["研发", "财务"]}
     )
     assert sorted(i for i, _ in scores) == [0, 1]
+
+
+# 功能：验证 QdrantIndex 把范围 filter 下推为服务端 Range 条件
+# 设计：两个点 year 不同，用 gte 范围过滤仅返回满足下限的点
+async def test_qdrant_index_metadata_filter_range(tmp_path: Path) -> None:
+    index = QdrantIndex(_fake_embed(), path=str(tmp_path / "qdrant"))
+    texts = ["machine learning notes", "machine learning notes"]
+    metas = [{"year": 2024}, {"year": 2026}]
+    await index.build(texts, ["a::0", "b::0"], "fp", metas)
+    scores = await index.search(
+        "machine learning", top_k=2, filter={"year": {"gte": 2025}}
+    )
+    assert scores == [(1, 1.0)]

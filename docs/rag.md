@@ -217,13 +217,15 @@ rerank_depth = 50
 
 **职责边界**：Qdrant **只接管「存储 + 检索」**，embedding 仍由智谱 `embedding-3` 生成（复用 `ZhipuEmbeddingIndex` 的 `_embed`）。所以仍需配置 `api_key`；未配置 key 时仍回退本地 BM25。
 
-**接口契合**：`QdrantIndex` 是又一个 `RagIndex` 实现，`RagStore`/`rag_search` 工具/`HybridIndex`/增量更新全都不改。为此 `RagIndex.build` 签名拓宽为 `(texts, ids, fingerprint, metas)`、`RagIndex.search` 拓宽为 `(query, top_k, allowed, filter)`——`ids` 是 `RagChunk.id`（`"{doc_id}::{i}"`）作稳定主键，`metas` 是各 chunk 的可过滤字段（`topic` 已并入），`filter` 是检索时的键值过滤条件；内存后端（`Bm25Index`/`ZhipuEmbeddingIndex`）对新增参数直接 `del`，行为不变。
+**接口契合**：`QdrantIndex` 是又一个 `RagIndex` 实现，`RagStore`/`rag_search` 工具/`HybridIndex`/增量更新全都不改。为此 `RagIndex.build` 签名拓宽为 `(texts, ids, fingerprint, metas)`、`RagIndex.search` 拓宽为 `(query, top_k, allowed, filter)`——`ids` 是 `RagChunk.id`（`"{doc_id}::{i}"`）作稳定主键，`metas` 是各 chunk 的可过滤字段，`filter` 是检索时的键值过滤条件；内存后端（`Bm25Index`/`ZhipuEmbeddingIndex`）对新增参数直接 `del`，行为不变。
 
 **三个关键细节**：
 
 1. **稳定 id → UUID**：Qdrant 只接受 UUID/uint 作 point id，`"{doc_id}::{i}"` 不能直接用。`_point_id()` 用 `uuid5(NAMESPACE_URL, stable_id)` 把稳定 id 确定性压成 UUID 作 point id，原始 `stable_id` 存进 payload——幂等且保住稳定身份。
 2. **增量靠 content_hash**：`build` 先 `scroll` 拉回 `{point_id: payload}`，只对「内容变化」的 chunk 调 embedding 再 `upsert`（未变 chunk 零 API 调用），并 `delete` 掉已不在语料中的陈旧点——延续现有按内容 hash 省钱的机制。同步的 Qdrant 调用经 `asyncio.to_thread` 包住，避免阻塞 daemon 事件循环。
-3. **元数据写 payload + 服务端过滤下推**：每个点 payload 额外存 `meta`（chunk 的 `metadata` + `topic`）。检索时 `filter` 转成 Qdrant `FieldCondition`（单值 `MatchValue`、列表 `MatchAny`，键前缀 `meta.`），经 `query_points(query_filter=...)` 下推——在服务端「先剪枝、再算相似度」，而非召回后内存过滤。内容未变仅 meta 变化时，只 `set_payload` 更新 `meta` 字段，不重算向量。
+3. **元数据写 payload + 服务端过滤下推**：每个点 payload 额外存 `meta`（chunk 的 `metadata`，值已类型化）。检索时 `filter` 转成 Qdrant `FieldCondition`（单值 `MatchValue`、列表 `MatchAny`、范围字典 `Range`，键前缀 `meta.`），经 `query_points(query_filter=...)` 下推——在服务端「先剪枝、再算相似度」，而非召回后内存过滤。内容未变仅 meta 变化时，只 `set_payload` 更新 `meta` 字段，不重算向量。
+
+**词法路边界（有意不并入 Qdrant）**：混合检索里，`QdrantIndex` 只接管 **dense 语义路** 的 ANN 存储与检索，**词法一路保持内存 `Bm25Index`（倒排表 TAAT）**，`HybridIndex` 在内存里用 RRF 融合两路。评估过「Qdrant 原生稀疏向量 + 服务端 `FusionQuery` RRF」方案后放弃——它要求把 token 哈希成 uint32 稀疏维度并重写建库/查询路径，收益与现有倒排表等价，却引入非默认的稀疏编码。故词法路固定用 `Bm25Index` + 默认 `hash_text`（sha256 hexdigest），不做稀疏向量改造。
 
 配置键：`vector_db`（str，默认 `""` 走 JSON 缓存；`"qdrant"` 启用）、`qdrant_url`（str，默认 `""` 走 local mode）、`qdrant_path`（str，默认 `~/.kama/qdrant`）。环境变量：`KAMA_RAG_VECTOR_DB`、`KAMA_RAG_QDRANT_URL`、`KAMA_RAG_QDRANT_PATH`。
 
@@ -260,18 +262,26 @@ qdrant_path = "~/.kama/qdrant"   # local mode；上服务则改 qdrant_url = "ht
 
 每个 chunk 可附带结构化元数据（来源、更新时间、部门等），检索时可组合语义相似度 + 业务条件做「先按业务路由、再精准检索」。
 
-- **元数据来源**：`RagChunk` 新增 `metadata: dict[str, str]`。`load_dir` 自动填充 `source`（相对路径）与 `updated_at`（mtime 的 `YYYY-MM`），并解析 Markdown frontmatter（`---` 之间的 `key: value`）取显式字段如 `department` / `category`。
-- **过滤语法（平铺键值）**：`rag_search` 新增 `filter` 参数，键为字段名、值为字符串或字符串列表（列表=任一匹配）。平铺 JSON 比嵌套布尔表达式对 LLM 更友好、更不易生成错。
-- **后端执行**：`RagStore.search(query, top_k, filter=...)` 把 filter 翻译成命中 chunk 的下标白名单（`_match`），`RagIndex.search(query, top_k, allowed)` 只在白名单内打分——BM25/embedding/hybrid/Qdrant 四后端一致。`topic` 参数保留并归并为 `metadata` 的一个默认键，向后兼容。
+- **元数据来源**：`RagChunk` 新增 `metadata: dict[str, MetaValue]`（`MetaValue = str | int | float | bool | list[str]`）。`load_dir` 自动填充 `source`（相对路径）与 `updated_at`（mtime 的 `YYYY-MM`），并解析 Markdown frontmatter（`---` 之间的 `key: value`）取显式字段如 `department` / `category`，值按标量类型推断（`true`→bool、`10`→int、`0.5`→float）。
+- **过滤语法（平铺键值）**：`rag_search` 的 `filter` 参数，键为字段名、值为：
+  - 字符串/标量 → 等值匹配；
+  - 字符串列表 → 任一匹配（`MatchAny`）；
+  - 范围字典 `{"gte"/"lte"/"gt"/"lt": 边界}` → 范围过滤（数值优先按数值、退化字符串字典序），如 `{"updated_at": {"gte": "2026-03"}}`。
+  平铺 JSON 比嵌套布尔表达式对 LLM 更友好、更不易生成错。
+- **后端执行**：`RagStore.search(query, top_k, filter=...)` 把 filter 翻译成命中 chunk 的下标白名单（`_match`），`RagIndex.search(query, top_k, allowed)` 只在白名单内打分——BM25/embedding/hybrid/Qdrant 四后端一致。内存后端的 `_match` 用**字段值倒排索引**（`_build_inverted`）求各字段命中下标交集，避免全量线性扫描。
 
-**关键：如何让 LLM 自己懂何时用过滤条件** —— 靠「词汇表 + 决策规则」双注入，而非更聪明的 prompt：
+**关键：如何让 LLM 自己懂何时用过滤条件** —— 靠「词汇表 + 决策规则 + 示例」三注入，而非更聪明的 prompt：
 
 1. **词汇表**：`RagStore.metadata_manifest()` 枚举每个可过滤字段及其去重后的全部取值，拼进工具 `description`。LLM 看到 `department: 研发、财务` 就不会幻觉出不存在的值。
 2. **决策规则**：工具 `description` 写明启发式——「问题里出现某个字段取值时才带对应 filter，否则留空」。
+3. **示例（one-shot）**：`description` 附带两个范例，帮 LLM 把规则落到具体参数上。
 
 ```python
 # 示例：只检索「研发」部门的 chunk
 result = await store.search("运行步骤", filter={"department": "研发"})
+
+# 范围过滤：只检索 2026-03 之后更新的 chunk
+result = await store.search("运行步骤", filter={"updated_at": {"gte": "2026-03"}})
 
 # 词汇表注入后，工具 description 形如：
 #   可过滤字段及其取值：
@@ -280,9 +290,49 @@ result = await store.search("运行步骤", filter={"department": "研发"})
 #   - updated_at: 2026-09
 ```
 
-**后端执行差异**：内存后端把 `filter` 翻译成下标白名单 `allowed`，只在白名单内打分；`QdrantIndex` 额外把 `filter` 下推为服务端 `FieldCondition`（见 §5.2 细节 3），先剪枝再算相似度——大规模语料下无需全量召回。二者对外行为一致。
+**后端执行差异**：内存后端把 `filter` 翻译成下标白名单 `allowed`（经倒排索引加速），只在白名单内打分；`QdrantIndex` 额外把 `filter` 下推为服务端 `FieldCondition`/`Range`（见 §5.2 细节 3），先剪枝再算相似度——大规模语料下无需全量召回。二者对外行为一致。
+
+**过滤正确性评测**：评测数据集（`RagEvalCase`）新增可选 `filter` 字段，`eval-rag --filter-check` 会额外计算「过滤合规率」（top-K 中命中允许集合的文档占比），把「过滤是否真的收窄候选集」从猜测变成可回归指标。
+
+> 说明：`topic` 不再作为独立过滤参数——它从标题派生、词表不可控、精确匹配命中率低，作为过滤键价值有限；其价值在于 `manifest()` 展示（层 2），故保留为主题清单，不再参与过滤。
 
 三层不互斥、可叠加：层 1 保证「会去检索」，层 2 保证「知道查什么」，层 3 保证「查得准、可规模化」。
+
+### 5.4 查询优化与查询拓展（query 改写 + 多查询融合）
+
+召回质量的一个常见瓶颈在**查询侧**：用户口语化提问（"这项目配置咋整的"）与知识库书面表达（"五层配置优先级"）用词不一致，单条 query 检索召回不足。本节在 `RagStore.search` 与检索后端之间插一层**查询处理器**，把原始 query 变成 1..N 条子查询后做 RRF 融合，分两条腿：
+
+**腿 1 —— 确定性查询优化（零成本、始终开启）**
+
+`optimize_query()` 只做空白规范化：`" ".join(query.split())`，压缩首尾与内部连续空白为单个空格。不依赖任何模型、不产生额外调用。
+
+**腿 2 —— LLM 查询改写 + 拓展（可选、配置门控）**
+
+`LlmQueryProcessor` 复用项目 `LLMProvider` 协议（`core/llm/base.py` 的 `chat` 一个方法），一次调用让模型返回 JSON 字符串数组：第 1 条是「书面化改写」，其后各条是「不同角度/同义表达/子问题」的拓展查询。原始查询始终保留在首位，其后追加拓展结果，去重并按 `1 + expand_n` 限幅。
+
+- **失败安全回退**：LLM 调用异常、或输出无法解析为查询列表时，退化为仅原始查询，绝不阻断检索。
+- **输出解析**：`parse_query_list()` 优先按 JSON 数组解析，退化逐行（剥离 markdown 围栏/项目符号/编号）。
+
+**多查询 RRF 融合**：`rrf_fuse()` 从 `HybridIndex` 抽出为共享纯函数（`core/rag/index.py`），`RagStore.search` 对每条子查询召回 `query_depth` 个候选后按 RRF 融合取 top_k——让「多条查询都命中的 chunk」胜出。单查询时直接检索，零额外开销。
+
+```python
+# 配置了查询处理器时，改写+拓展为多条子查询；否则单条原始查询
+if self._query_processor is not None:
+    queries = await self._query_processor.transform(base)
+else:
+    queries = [base]
+```
+
+配置键：`query_enhance_enabled`（bool，默认 `false`）、`query_expand_n`（int>0，默认 `3`）、`query_depth`（int>0，默认 `10`）。环境变量：`KAMA_RAG_QUERY_ENHANCE`、`KAMA_RAG_QUERY_EXPAND_N`、`KAMA_RAG_QUERY_DEPTH`。
+
+```toml
+[rag]
+query_enhance_enabled = true   # 按量计费，默认关闭
+query_expand_n = 3             # 拓展子查询条数
+query_depth = 10               # 每条子查询召回候选数
+```
+
+**A/B 评测**：`eval-rag --query-enhance` 会在检索层对同一 backend 追加 `+query` 变体，对比 baseline 与查询增强后的 Hit@K / MRR / Recall@K，把「改写+拓展是否真的提召回」从猜测变成可回归指标。
 
 ---
 
@@ -395,12 +445,16 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 | 文件 | 变更 |
 |------|------|
 | `src/kama_claude/core/rag/__init__.py` | 新增，导出模块 |
-| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（§5.3） |
-| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 结构化过滤 |
+| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（值类型推断，§5.3） |
+| `src/kama_claude/core/rag/filter.py` | 新增，`MetaValue` 类型 + `matches`/`is_range`/`canonical` 过滤匹配原语 |
+| `src/kama_claude/core/rag/query.py` | 新增，`optimize_query`/`parse_query_list` + `LlmQueryProcessor`（查询改写+拓展，§5.4） |
+| `src/kama_claude/core/rag/index.py` | `rrf_fuse()` 抽为共享纯函数，`HybridIndex` 复用（§5.4） |
+| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 倒排索引过滤 + 多查询 RRF 融合（§5.4） |
 | `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2，含元数据 payload + 服务端过滤下推） |
-| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表 + `filter` 参数） |
+| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表/示例 + `filter` 参数） |
 | `src/kama_claude/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `KAMA_RAG_*` 环境变量 |
 | `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |
 | `src/kama_claude/core/context.py` | 新增 `rag_instruction`/`rag_manifest` 字段并注入系统提示（§5.3） |
 | `tests/unit/test_rag.py` | 新增，覆盖分词/分块/建索引/检索/工具/主题清单/过滤 |
+| `tests/unit/test_rag_query.py` | 新增，覆盖查询优化/解析/RRF 融合/LLM 查询处理器回退（§5.4） |
 | `docs/rag.md` | 本设计文档 |
