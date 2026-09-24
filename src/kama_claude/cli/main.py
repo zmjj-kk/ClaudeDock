@@ -5,6 +5,7 @@ import sys
 
 from kama_claude.cli.commands.chat import cmd_chat
 from kama_claude.cli.commands.core import cmd_core_start, cmd_core_status, cmd_core_stop
+from kama_claude.cli.commands.memory import cmd_memory_consolidate
 from kama_claude.cli.commands.ping import cmd_ping
 from kama_claude.cli.commands.run import cmd_run
 from kama_claude.cli.commands.trace import cmd_trace
@@ -30,6 +31,12 @@ def main() -> None:
     core_sub.add_parser("start", help="Start the daemon in the background")
     core_sub.add_parser("stop", help="Stop the running daemon")
     core_sub.add_parser("status", help="Show daemon status")
+
+    memory_parser = subparsers.add_parser("memory", help="Manage long-term memory")
+    memory_sub = memory_parser.add_subparsers(dest="memory_command")
+    memory_sub.add_parser(
+        "consolidate", help="Deduplicate, resolve conflicts, and abstract memories"
+    )
 
     trace_parser = subparsers.add_parser("trace", help="View system trace log")
     trace_parser.add_argument("run_id", nargs="?", default=None, help="Filter by run ID")
@@ -84,6 +91,12 @@ def main() -> None:
             cmd_core_status(config)
         else:
             core_parser.print_help()
+            sys.exit(1)
+    elif args.command == "memory":
+        if args.memory_command == "consolidate":
+            cmd_memory_consolidate(config)
+        else:
+            memory_parser.print_help()
             sys.exit(1)
     elif args.command == "trace":
         cmd_trace(

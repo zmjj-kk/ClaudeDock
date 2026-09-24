@@ -18,6 +18,7 @@ _DEFAULT_MAX_STEPS = 20
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_TRACE_FILE = "~/.kama/traces/daemon.jsonl"
 _DEFAULT_RAG_KNOWLEDGE_DIR = "~/.kama/knowledge"
+_DEFAULT_MEMORY_STORE_DIR = "~/.kama/memory"
 _RETRIEVER_CHOICES = ("auto", "bm25", "embedding", "hybrid")
 
 
@@ -100,6 +101,18 @@ class RagConfig:
 
 
 @dataclass
+class MemoryConfig:
+    enabled: bool = False             # 是否注册 memory_* 工具并启用长期记忆层
+    store_dir: str = _DEFAULT_MEMORY_STORE_DIR  # sqlite 库与向量缓存的根目录
+    inject_top_n: int = 5             # 主动注入 System Prompt 的记忆条数
+    search_top_k: int = 5             # memory_search 默认返回条数
+    max_structured_len: int = 500     # 超过此长度的内容改走向量层
+    dedup_threshold: float = 0.90     # vector 层语义去重阈值
+    half_life_days: float = 30.0      # recency 衰减半衰期（天）
+    max_entries: int = 5000           # 超过此阈值触发自动整合
+
+
+@dataclass
 class KamaConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -111,6 +124,7 @@ class KamaConfig:
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
     rag: RagConfig = field(default_factory=RagConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 # 构建并返回运行时配置：默认值 → 全局 TOML → 项目本地 TOML → .env → 系统环境变量（后者优先级最高）
@@ -147,7 +161,7 @@ def get_config() -> KamaConfig:
 def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
     unknown = set(data.keys()) - {
         "core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp",
-        "rag",
+        "rag", "memory",
     }
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
@@ -460,6 +474,63 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                 )
             config.rag.query_depth = val
 
+    if "memory" in data:
+        mem = data["memory"]
+        if not isinstance(mem, dict):
+            raise SystemExit("Config error: [memory] must be a table")
+        unknown_mem: set[str] = set(mem.keys()) - {
+            "enabled", "store_dir", "inject_top_n", "search_top_k",
+            "max_structured_len", "dedup_threshold", "half_life_days", "max_entries",
+        }
+        if unknown_mem:
+            raise SystemExit(f"Unknown [memory] keys: {', '.join(sorted(unknown_mem))}")
+        if "enabled" in mem:
+            val = mem["enabled"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: memory.enabled must be a boolean")
+            config.memory.enabled = val
+        if "store_dir" in mem:
+            val = mem["store_dir"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: memory.store_dir must be a string")
+            config.memory.store_dir = val
+        if "inject_top_n" in mem:
+            val = mem["inject_top_n"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: memory.inject_top_n must be a positive integer")
+            config.memory.inject_top_n = val
+        if "search_top_k" in mem:
+            val = mem["search_top_k"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: memory.search_top_k must be a positive integer")
+            config.memory.search_top_k = val
+        if "max_structured_len" in mem:
+            val = mem["max_structured_len"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit(
+                    "Config error: memory.max_structured_len must be a positive integer"
+                )
+            config.memory.max_structured_len = val
+        if "dedup_threshold" in mem:
+            val = mem["dedup_threshold"]
+            if not isinstance(val, (int, float)) or not (0.0 < val <= 1.0):
+                raise SystemExit(
+                    "Config error: memory.dedup_threshold must be between 0 and 1 (exclusive)"
+                )
+            config.memory.dedup_threshold = float(val)
+        if "half_life_days" in mem:
+            val = mem["half_life_days"]
+            if not isinstance(val, (int, float)) or val <= 0:
+                raise SystemExit(
+                    "Config error: memory.half_life_days must be a positive number"
+                )
+            config.memory.half_life_days = float(val)
+        if "max_entries" in mem:
+            val = mem["max_entries"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: memory.max_entries must be a positive integer")
+            config.memory.max_entries = val
+
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: KamaConfig) -> None:
@@ -759,4 +830,108 @@ def _apply_env(config: KamaConfig) -> None:
             raise SystemExit(
                 "Config error: KAMA_RAG_QUERY_DEPTH must be an integer, "
                 f"got: {rag_query_depth!r}"
+            )
+
+    mem_enabled = os.environ.get("KAMA_MEMORY_ENABLED")
+    if mem_enabled is not None:
+        config.memory.enabled = mem_enabled.lower() not in ("0", "false", "no")
+
+    mem_store_dir = os.environ.get("KAMA_MEMORY_STORE_DIR")
+    if mem_store_dir is not None:
+        config.memory.store_dir = mem_store_dir
+
+    mem_inject_top_n = os.environ.get("KAMA_MEMORY_INJECT_TOP_N")
+    if mem_inject_top_n is not None:
+        try:
+            mem_inject_top_n_val = int(mem_inject_top_n)
+            if mem_inject_top_n_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_INJECT_TOP_N must be a positive integer, "
+                    f"got: {mem_inject_top_n!r}"
+                )
+            config.memory.inject_top_n = mem_inject_top_n_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_INJECT_TOP_N must be an integer, "
+                f"got: {mem_inject_top_n!r}"
+            )
+
+    mem_search_top_k = os.environ.get("KAMA_MEMORY_SEARCH_TOP_K")
+    if mem_search_top_k is not None:
+        try:
+            mem_search_top_k_val = int(mem_search_top_k)
+            if mem_search_top_k_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_SEARCH_TOP_K must be a positive integer, "
+                    f"got: {mem_search_top_k!r}"
+                )
+            config.memory.search_top_k = mem_search_top_k_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_SEARCH_TOP_K must be an integer, "
+                f"got: {mem_search_top_k!r}"
+            )
+
+    mem_max_structured = os.environ.get("KAMA_MEMORY_MAX_STRUCTURED_LEN")
+    if mem_max_structured is not None:
+        try:
+            mem_max_structured_val = int(mem_max_structured)
+            if mem_max_structured_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_MAX_STRUCTURED_LEN must be a positive integer, "
+                    f"got: {mem_max_structured!r}"
+                )
+            config.memory.max_structured_len = mem_max_structured_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_MAX_STRUCTURED_LEN must be an integer, "
+                f"got: {mem_max_structured!r}"
+            )
+
+    mem_dedup = os.environ.get("KAMA_MEMORY_DEDUP_THRESHOLD")
+    if mem_dedup is not None:
+        try:
+            mem_dedup_val = float(mem_dedup)
+            if not (0.0 < mem_dedup_val <= 1.0):
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_DEDUP_THRESHOLD must be between 0 and 1, "
+                    f"got: {mem_dedup!r}"
+                )
+            config.memory.dedup_threshold = mem_dedup_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_DEDUP_THRESHOLD must be a number, "
+                f"got: {mem_dedup!r}"
+            )
+
+    mem_half_life = os.environ.get("KAMA_MEMORY_HALF_LIFE_DAYS")
+    if mem_half_life is not None:
+        try:
+            mem_half_life_val = float(mem_half_life)
+            if mem_half_life_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_HALF_LIFE_DAYS must be positive, "
+                    f"got: {mem_half_life!r}"
+                )
+            config.memory.half_life_days = mem_half_life_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_HALF_LIFE_DAYS must be a number, "
+                f"got: {mem_half_life!r}"
+            )
+
+    mem_max_entries = os.environ.get("KAMA_MEMORY_MAX_ENTRIES")
+    if mem_max_entries is not None:
+        try:
+            mem_max_entries_val = int(mem_max_entries)
+            if mem_max_entries_val <= 0:
+                raise SystemExit(
+                    "Config error: KAMA_MEMORY_MAX_ENTRIES must be a positive integer, "
+                    f"got: {mem_max_entries!r}"
+                )
+            config.memory.max_entries = mem_max_entries_val
+        except ValueError:
+            raise SystemExit(
+                "Config error: KAMA_MEMORY_MAX_ENTRIES must be an integer, "
+                f"got: {mem_max_entries!r}"
             )

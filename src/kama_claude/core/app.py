@@ -19,6 +19,8 @@ from kama_claude.core.bus.commands import (
     AgentRunResult,
     EventSubscribeCommand,
     EventSubscribeResult,
+    MemoryConsolidateCommand,
+    MemoryConsolidateResult,
     PermissionRespondCommand,
     PermissionRespondResult,
     PongResult,
@@ -39,6 +41,8 @@ from kama_claude.core.events.bus import EventBus
 from kama_claude.core.llm.provider import AnthropicProvider
 from kama_claude.core.logging_setup import setup_logging
 from kama_claude.core.mcp.server import McpServerManager
+from kama_claude.core.memory.factory import build_memory_store
+from kama_claude.core.memory.store import MemoryStore
 from kama_claude.core.permissions.manager import PermissionManager
 from kama_claude.core.permissions.storage import load_policy_file
 from kama_claude.core.runner import AgentRunner
@@ -67,6 +71,7 @@ class CoreApp:
         self._sessions: SessionManager | None = None
         self._permission_manager: PermissionManager | None = None
         self._mcp_manager: McpServerManager | None = None
+        self._memory_store: MemoryStore | None = None
 
     # 处理 core.ping 请求，返回服务版本、运行时长和接收时间
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
@@ -146,6 +151,27 @@ class CoreApp:
         cmd = SessionCompactCommand.model_validate(params)
         result = await self._sessions.compact(cmd.session_id, cmd.focus)
         return result  # type: ignore[no-any-return]
+
+    # 手动触发长期记忆整合：去重/冲突消解/抽象提炼，返回合并与退休条数
+    async def _memory_consolidate_handler(
+        self, params: dict[str, Any]
+    ) -> MemoryConsolidateResult:
+        MemoryConsolidateCommand.model_validate(params)
+        if self._memory_store is None:
+            logger.error("memory.consolidate: MemoryStore not initialized")
+            return MemoryConsolidateResult()
+        assert self._config is not None
+        try:
+            provider = AnthropicProvider(self._config.llm.default_model)
+        except SystemExit:
+            logger.error("memory.consolidate: ANTHROPIC_API_KEY not set")
+            return MemoryConsolidateResult()
+        result = await self._memory_store.consolidate(provider)
+        if result is None:
+            return MemoryConsolidateResult()
+        return MemoryConsolidateResult(
+            merged=len(result.replace), retired=len(result.retire)
+        )
 
     # 关闭 session 并返回 closed 状态
     async def _session_close_handler(self, params: dict[str, Any]) -> SessionCloseResult:
@@ -240,6 +266,18 @@ class CoreApp:
             logger.info("mcp: starting %d server(s)", len(self._config.mcp.servers))
             await self._mcp_manager.start_all(self._config.mcp.servers)
 
+        # 长期记忆单例：配置启用时构建并加载两层存储；失败降级为禁用，不阻断 daemon 启动
+        if self._config.memory.enabled:
+            try:
+                self._memory_store = build_memory_store(
+                    self._config.memory, self._config.rag
+                )
+                await self._memory_store.load()
+                logger.info("memory: loaded %d entries", self._memory_store.count())
+            except Exception:
+                logger.exception("memory: build/load failed, memory disabled")
+                self._memory_store = None
+
         self._sessions = SessionManager(
             store,
             runner_factory=lambda: AgentRunner(
@@ -248,6 +286,7 @@ class CoreApp:
                 trace=self._trace,
                 permission_manager=self._permission_manager,
                 mcp_manager=self._mcp_manager,
+                memory_store=self._memory_store,
             ),
             bus=self._bus,
             provider=compact_provider,
@@ -268,6 +307,7 @@ class CoreApp:
         server.register("session.close", self._session_close_handler)
         server.register("permission.respond", self._permission_respond_handler)
         server.register("session.compact", self._session_compact_handler)
+        server.register("memory.consolidate", self._memory_consolidate_handler)
 
         addr = await server.start()
         logger.info("kama-core %s listening addr=%s", kama_claude.__version__, addr)

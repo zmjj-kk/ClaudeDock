@@ -12,6 +12,8 @@ from kama_claude.core.bus.commands import (
     AgentRunResult,
     EventSubscribeCommand,
     EventSubscribeResult,
+    MemoryConsolidateCommand,
+    MemoryConsolidateResult,
     PingCommand,
     PongResult,
     SessionCloseCommand,
@@ -141,6 +143,17 @@ def generate() -> str:
         "id": "u-5",
         "result": {"run_id": run_id},
     }
+    memory_consolidate_req_example = {
+        "jsonrpc": "2.0",
+        "id": "u-6",
+        "method": "memory.consolidate",
+        "params": {},
+    }
+    memory_consolidate_resp_example = {
+        "jsonrpc": "2.0",
+        "id": "u-6",
+        "result": {"merged": 3, "retired": 2},
+    }
     event_push_example = {
         "kind": "event",
         "event": {
@@ -187,6 +200,10 @@ def generate() -> str:
         _model_section("SessionCloseCommand", SessionCloseCommand),
         "\n",
         _model_section("SessionCloseResult", SessionCloseResult),
+        "\n",
+        _model_section("MemoryConsolidateCommand", MemoryConsolidateCommand, memory_consolidate_req_example),
+        "\n",
+        _model_section("MemoryConsolidateResult", MemoryConsolidateResult, memory_consolidate_resp_example),
         "\n## Server Push\n\n",
         "Events pushed from daemon to subscribed clients over the same TCP connection.\n\n",
         _model_section("EventPushEnvelope", EventPushEnvelope, event_push_example),

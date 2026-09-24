@@ -24,6 +24,8 @@ class ExecutionContext:
     rag_instruction: str = ""
     # RAG 知识库主题清单（层 2）：动态注入，帮助判断检索边界
     rag_manifest: str = ""
+    # 长期记忆主动注入块：run 启动时从 MemoryStore 取核心偏好/近期结论拼入
+    memory_block: str = ""
 
     # 初始化消息历史，优先使用 session 完整回放内容
     def __post_init__(self) -> None:
@@ -43,6 +45,13 @@ class ExecutionContext:
             parts.append("\n\n## Knowledge Base Retrieval\n" + self.rag_instruction.strip())
             if self.rag_manifest.strip():
                 parts.append("\n" + self.rag_manifest.strip())
+        if self.memory_block.strip():
+            parts.append(
+                "\n\n## Long-term Memory\n"
+                + self.memory_block.strip()
+                + "\n\nRetrieve more with memory_search / memory_query; "
+                "save durable facts with memory_save."
+            )
         if self.session_notes.strip():
             parts.append(
                 "\n\n## Session Notes\n"

@@ -100,6 +100,15 @@ class SessionCompactResult(BaseModel):
     saved_tokens: int
 
 
+class MemoryConsolidateCommand(BaseModel):
+    type: Literal["memory.consolidate"] = "memory.consolidate"
+
+
+class MemoryConsolidateResult(BaseModel):
+    merged: int = 0
+    retired: int = 0
+
+
 # 根据 type 字段决定命令类型的判别联合
 Command = Annotated[
     PingCommand
@@ -110,6 +119,7 @@ Command = Annotated[
     | SessionGetHistoryCommand
     | SessionCloseCommand
     | PermissionRespondCommand
-    | SessionCompactCommand,
+    | SessionCompactCommand
+    | MemoryConsolidateCommand,
     Discriminator("type"),
 ]

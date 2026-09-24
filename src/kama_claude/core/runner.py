@@ -17,6 +17,7 @@ from kama_claude.core.llm.provider import AnthropicProvider
 from kama_claude.core.loop import AgentLoop
 from kama_claude.core.mcp.server import McpServerManager
 from kama_claude.core.memory.loader import load_context_file
+from kama_claude.core.memory.store import MemoryStore
 from kama_claude.core.permissions.manager import PermissionManager
 from kama_claude.core.rag.factory import build_store
 from kama_claude.core.rag.store import RagStore
@@ -30,6 +31,9 @@ from kama_claude.core.task.manager import TaskManager
 from kama_claude.core.tools.builtin import (
     BashTool,
     ListDirTool,
+    MemoryQueryTool,
+    MemorySaveTool,
+    MemorySearchTool,
     NoteSaveTool,
     ReadFileTool,
     TaskCreateTool,
@@ -74,6 +78,7 @@ class AgentRunner:
         trace: TraceWriter | None = None,
         permission_manager: PermissionManager | None = None,
         mcp_manager: McpServerManager | None = None,
+        memory_store: MemoryStore | None = None,
     ) -> None:
         self._config = config
         self._bus = bus
@@ -87,6 +92,8 @@ class AgentRunner:
         self._task_registry = BackgroundTaskRegistry()
         # RAG 知识库索引，惰性构建并跨 run 复用
         self._rag_store: RagStore | None = None
+        # daemon 级长期记忆单例，配置启用时由 app.py 注入
+        self._memory_store = memory_store
 
     # 构建工具注册表，注入 TaskManager（任务工具共享同一实例）；可选注入 SpawnAgentTool
     async def _build_registry(
@@ -125,6 +132,14 @@ class AgentRunner:
                 registry.register(note_tool)
         if self._config.rag.enabled and _ok("rag_search"):
             registry.register(RagSearchTool(await self._get_rag_store(), self._config.rag.top_k))
+        if self._config.memory.enabled and self._memory_store is not None:
+            mem = self._config.memory
+            if _ok("memory_save"):
+                registry.register(MemorySaveTool(self._memory_store))
+            if _ok("memory_search"):
+                registry.register(MemorySearchTool(self._memory_store, mem.search_top_k))
+            if _ok("memory_query"):
+                registry.register(MemoryQueryTool(self._memory_store))
         if provider is not None and bus is not None and run_id is not None:
             runs_dir = child_runs_dir or self._runs_dir
             if _ok("spawn_agent"):
@@ -228,6 +243,12 @@ class AgentRunner:
             except Exception:
                 # 知识库构建失败不应拖垮 run，跳过 RAG 提示注入
                 logging.getLogger(__name__).exception("RAG manifest injection failed")
+        # 长期记忆主动注入：把核心偏好与近期结论拼入 System Prompt
+        if self._config.memory.enabled and self._memory_store is not None:
+            try:
+                context.memory_block = await self._memory_store.inject()
+            except Exception:
+                logging.getLogger(__name__).exception("memory injection failed")
         prefill_len = len(history)
 
         async with EventWriter(run_path / "events.jsonl") as writer:
@@ -299,6 +320,24 @@ class AgentRunner:
 
         if session is not None and store is not None:
             store.append_messages(session.id, context.messages[prefill_len:], run_id=run_id)
+
+        # 长期记忆自动整合：超过阈值后后台异步执行，不阻塞 run 返回；无 API key 时静默跳过
+        if self._config.memory.enabled and self._memory_store is not None:
+            if self._memory_store.needs_consolidation():
+                consolidate_provider: LLMProvider | None = self._provider
+                if consolidate_provider is None:
+                    try:
+                        consolidate_provider = AnthropicProvider(
+                            self._config.llm.default_model
+                        )
+                    except SystemExit:
+                        logging.getLogger(__name__).warning(
+                            "memory consolidation skipped: no LLM provider available"
+                        )
+                if consolidate_provider is not None:
+                    asyncio.create_task(
+                        self._memory_store.consolidate(consolidate_provider)
+                    )
 
         if cancelled:
             raise asyncio.CancelledError()

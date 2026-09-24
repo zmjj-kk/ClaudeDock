@@ -581,6 +581,77 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 }
 ```
 
+### MemoryConsolidateCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "memory.consolidate",
+      "default": "memory.consolidate",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "MemoryConsolidateCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-6",
+  "method": "memory.consolidate",
+  "params": {}
+}
+```
+
+### MemoryConsolidateResult
+
+| Field | Type | Required |
+|---|---|---|
+| `merged` | `integer` | no |
+| `retired` | `integer` | no |
+
+```json
+{
+  "properties": {
+    "merged": {
+      "default": 0,
+      "title": "Merged",
+      "type": "integer"
+    },
+    "retired": {
+      "default": 0,
+      "title": "Retired",
+      "type": "integer"
+    }
+  },
+  "title": "MemoryConsolidateResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-6",
+  "result": {
+    "merged": 3,
+    "retired": 2
+  }
+}
+```
+
 ## Server Push
 
 Events pushed from daemon to subscribed clients over the same TCP connection.
