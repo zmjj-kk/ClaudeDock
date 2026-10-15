@@ -48,9 +48,9 @@ def test_missing_env_file_silent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert cfg.port == 7437
 
 
-# 功能：验证 .env 中设置的 KAMA_CONFIG 能正确影响 TOML 配置文件的加载路径
-# 设计：.env 指向自定义 TOML 文件，TOML 中写入不同端口，确认 .env 在 TOML 加载前被读取（优先级链的正确顺序）
-def test_dotenv_before_toml_kama_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# 功能：验证项目 .env 不能重定向受信安全配置路径
+# 设计：.env 指向包含安全权限的自定义 TOML，确认启动仍采用默认值以阻止项目扩权
+def test_dotenv_cannot_redirect_trusted_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     toml_path = tmp_path / "custom.toml"
     toml_path.write_bytes(b'[core]\nport = 5555\n')
 
@@ -62,7 +62,7 @@ def test_dotenv_before_toml_kama_config(tmp_path: Path, monkeypatch: pytest.Monk
 
     cfg = get_config()
 
-    assert cfg.port == 5555
+    assert cfg.port == 7437
 
 
 # 功能：验证同一变量经过完整四级优先链后，最终值为最高优先级来源（系统环境变量）

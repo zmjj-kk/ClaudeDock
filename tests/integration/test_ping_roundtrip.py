@@ -4,6 +4,8 @@ import asyncio
 import json
 import subprocess
 
+from kama_claude.core.transport.auth import read_token
+
 
 # 功能：验证真实 daemon 响应 core.ping 命令并返回包含版本、uptime、时间戳的 PongResult
 # 设计：通过原始 TCP 连接发送 JSON-RPC 帧（不经过任何 SDK 客户端层），直接验证 wire 协议的端到端正确性
@@ -16,7 +18,7 @@ async def test_ping_returns_pong(
         "jsonrpc": "2.0",
         "id": "test-1",
         "method": "core.ping",
-        "params": {"client": "test/0.0.1"},
+        "params": {"client": "test/0.0.1", "_auth_token": read_token(free_port)},
     }
     writer.write((json.dumps(req) + "\n").encode())
     await writer.drain()
@@ -45,7 +47,7 @@ async def test_unknown_method_returns_error(
         "jsonrpc": "2.0",
         "id": "test-2",
         "method": "core.nonexistent",
-        "params": {},
+        "params": {"_auth_token": read_token(free_port)},
     }
     writer.write((json.dumps(req) + "\n").encode())
     await writer.drain()

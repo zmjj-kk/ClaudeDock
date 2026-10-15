@@ -8,6 +8,10 @@
 - Each message is one `\n`-terminated JSON line (NDJSON)
 - Commands use JSON-RPC 2.0 (client → server); Events use `kind=event` envelope (server → client)
 
+## Authentication
+
+All requests must include `params._auth_token`. Local clients read a user-owned 0600 token file; remote clients must set `KAMA_IPC_TOKEN`. The token is removed before command validation and never included in traces. Unauthorized requests return -32001. Non-loopback listeners require explicit remote configuration and a TLS proxy or a private network boundary.
+
 ## Commands
 
 All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params` is used for routing.
@@ -185,6 +189,7 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 | `type` | `string` | no |
 | `topics` | `array` | yes |
 | `scope` | `string` | no |
+| `after_sequence` | `integer` | no |
 | `replay_from_run` | `string | null` | no |
 
 ```json
@@ -208,9 +213,16 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
       "title": "Scope",
       "type": "string"
     },
+    "after_sequence": {
+      "default": 0,
+      "minimum": 0,
+      "title": "After Sequence",
+      "type": "integer"
+    },
     "replay_from_run": {
       "anyOf": [
         {
+          "pattern": "^[A-Za-z0-9_-]{1,80}$",
           "type": "string"
         },
         {
@@ -651,6 +663,125 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
   }
 }
 ```
+### RunGetCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "run.get",
+      "default": "run.get",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,80}$",
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "RunGetCommand",
+  "type": "object"
+}
+```
+### RunGetResult
+
+| Field | Type | Required |
+|---|---|---|
+| `run_id` | `string` | yes |
+| `state` | `string` | yes |
+| `reason` | `string | null` | no |
+
+```json
+{
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "state": {
+      "title": "State",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "run_id",
+    "state"
+  ],
+  "title": "RunGetResult",
+  "type": "object"
+}
+```
+### RunCancelCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "run.cancel",
+      "default": "run.cancel",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,80}$",
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "RunCancelCommand",
+  "type": "object"
+}
+```
+### RunCancelResult
+
+| Field | Type | Required |
+|---|---|---|
+| `cancelled` | `boolean` | yes |
+
+```json
+{
+  "properties": {
+    "cancelled": {
+      "title": "Cancelled",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cancelled"
+  ],
+  "title": "RunCancelResult",
+  "type": "object"
+}
+```
 
 ## Server Push
 
@@ -660,12 +791,18 @@ Events pushed from daemon to subscribed clients over the same TCP connection.
 
 | Field | Type | Required |
 |---|---|---|
+| `sequence` | `integer` | no |
 | `kind` | `string` | no |
 | `event` | `object` | yes |
 
 ```json
 {
   "properties": {
+    "sequence": {
+      "default": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
     "kind": {
       "const": "event",
       "default": "event",
@@ -747,6 +884,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `goal` | `string` | yes |
@@ -755,6 +893,18 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
     "type": {
       "const": "run.started",
       "default": "run.started",
@@ -1315,6 +1465,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `context_window` | `integer | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `input_tokens` | `integer` | yes |
@@ -1327,6 +1478,18 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "context_window": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Window"
+    },
     "type": {
       "const": "llm.usage",
       "default": "llm.usage",
@@ -1714,3 +1877,1337 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 | -32602 | Invalid Params | Parameter validation failed |
 | -32603 | Internal Error | Handler raised an unhandled exception |
 | -32000 | Application Error | e.g. another run already in progress |
+
+## Additional Typed Commands, Results and Events
+
+### PermissionRespondCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `approval_token` | `string` | no |
+| `type` | `string` | no |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "approval_token": {
+      "default": "",
+      "title": "Approval Token",
+      "type": "string"
+    },
+    "type": {
+      "const": "permission.respond",
+      "default": "permission.respond",
+      "title": "Type",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool_use_id",
+    "decision"
+  ],
+  "title": "PermissionRespondCommand",
+  "type": "object"
+}
+```
+
+### PermissionRespondResult
+
+| Field | Type | Required |
+|---|---|---|
+| `ok` | `boolean` | no |
+
+```json
+{
+  "properties": {
+    "ok": {
+      "default": true,
+      "title": "Ok",
+      "type": "boolean"
+    }
+  },
+  "title": "PermissionRespondResult",
+  "type": "object"
+}
+```
+
+### SessionCompactCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `focus` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.compact",
+      "default": "session.compact",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "focus": {
+      "default": "",
+      "title": "Focus",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionCompactCommand",
+  "type": "object"
+}
+```
+
+### SessionCompactResult
+
+| Field | Type | Required |
+|---|---|---|
+| `summary_tokens` | `integer` | yes |
+| `saved_tokens` | `integer` | yes |
+| `projection_tokens` | `integer | null` | no |
+| `revision` | `integer` | no |
+| `retained_messages` | `integer` | no |
+
+```json
+{
+  "properties": {
+    "summary_tokens": {
+      "title": "Summary Tokens",
+      "type": "integer"
+    },
+    "saved_tokens": {
+      "title": "Saved Tokens",
+      "type": "integer"
+    },
+    "projection_tokens": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Projection Tokens"
+    },
+    "revision": {
+      "default": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "retained_messages": {
+      "default": 0,
+      "title": "Retained Messages",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "summary_tokens",
+    "saved_tokens"
+  ],
+  "title": "SessionCompactResult",
+  "type": "object"
+}
+```
+
+### SessionGetContextCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.get_context",
+      "default": "session.get_context",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionGetContextCommand",
+  "type": "object"
+}
+```
+
+### SessionGetContextResult
+
+| Field | Type | Required |
+|---|---|---|
+| `notes` | `string` | no |
+| `sources` | `array` | no |
+| `projection` | `object` | no |
+
+```json
+{
+  "properties": {
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "sources": {
+      "default": [],
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "projection": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Projection",
+      "type": "object"
+    }
+  },
+  "title": "SessionGetContextResult",
+  "type": "object"
+}
+```
+
+### SessionListCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.list",
+      "default": "session.list",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "SessionListCommand",
+  "type": "object"
+}
+```
+
+### SessionListItem
+
+| Field | Type | Required |
+|---|---|---|
+| `id` | `string` | yes |
+| `title` | `string` | yes |
+| `status` | `string` | yes |
+| `mode` | `string` | yes |
+| `created_at` | `string` | yes |
+| `updated_at` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "waiting_for_input",
+        "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "one_shot",
+        "chat"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "mode",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "SessionListItem",
+  "type": "object"
+}
+```
+
+### SessionListResult
+
+| Field | Type | Required |
+|---|---|---|
+| `sessions` | `array` | yes |
+
+```json
+{
+  "$defs": {
+    "SessionListItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "waiting_for_input",
+            "closed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "one_shot",
+            "chat"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "mode",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SessionListItem",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "sessions": {
+      "items": {
+        "$ref": "#/$defs/SessionListItem"
+      },
+      "title": "Sessions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sessions"
+  ],
+  "title": "SessionListResult",
+  "type": "object"
+}
+```
+
+### ContextBudgetCheckedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `session_id` | `string` | no |
+| `window` | `integer | null` | yes |
+| `input_tokens` | `integer` | yes |
+| `reserved_output` | `integer` | yes |
+| `safety_margin` | `integer` | yes |
+| `system_tokens` | `integer` | yes |
+| `tools_tokens` | `integer` | yes |
+| `history_tokens` | `integer` | yes |
+| `over_limit` | `boolean` | yes |
+| `mode` | `string` | yes |
+| `estimate_method` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.budget_checked",
+      "default": "context.budget_checked",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "session_id": {
+      "default": "",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "window": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Window"
+    },
+    "input_tokens": {
+      "title": "Input Tokens",
+      "type": "integer"
+    },
+    "reserved_output": {
+      "title": "Reserved Output",
+      "type": "integer"
+    },
+    "safety_margin": {
+      "title": "Safety Margin",
+      "type": "integer"
+    },
+    "system_tokens": {
+      "title": "System Tokens",
+      "type": "integer"
+    },
+    "tools_tokens": {
+      "title": "Tools Tokens",
+      "type": "integer"
+    },
+    "history_tokens": {
+      "title": "History Tokens",
+      "type": "integer"
+    },
+    "over_limit": {
+      "title": "Over Limit",
+      "type": "boolean"
+    },
+    "mode": {
+      "title": "Mode",
+      "type": "string"
+    },
+    "estimate_method": {
+      "title": "Estimate Method",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "window",
+    "input_tokens",
+    "reserved_output",
+    "safety_margin",
+    "system_tokens",
+    "tools_tokens",
+    "history_tokens",
+    "over_limit",
+    "mode",
+    "estimate_method",
+    "ts"
+  ],
+  "title": "ContextBudgetCheckedEvent",
+  "type": "object"
+}
+```
+
+### ContextCacheUsageEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | no |
+| `run_id` | `string` | yes |
+| `stable_prefix_hash` | `string` | yes |
+| `cache_read` | `integer` | yes |
+| `cache_create` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.cache_usage",
+      "default": "context.cache_usage",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "default": "",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "stable_prefix_hash": {
+      "title": "Stable Prefix Hash",
+      "type": "string"
+    },
+    "cache_read": {
+      "title": "Cache Read",
+      "type": "integer"
+    },
+    "cache_create": {
+      "title": "Cache Create",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "stable_prefix_hash",
+    "cache_read",
+    "cache_create",
+    "ts"
+  ],
+  "title": "ContextCacheUsageEvent",
+  "type": "object"
+}
+```
+
+### ContextCompactedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `revision` | `integer` | no |
+| `retained_messages` | `integer` | no |
+| `projection_tokens` | `integer | null` | no |
+| `estimate_method` | `string` | no |
+| `elapsed_ms` | `integer` | no |
+| `session_id` | `string` | yes |
+| `run_id` | `string` | yes |
+| `original_tokens` | `integer` | yes |
+| `summary_tokens` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.compacted",
+      "default": "context.compacted",
+      "title": "Type",
+      "type": "string"
+    },
+    "revision": {
+      "default": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "retained_messages": {
+      "default": 0,
+      "title": "Retained Messages",
+      "type": "integer"
+    },
+    "projection_tokens": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Projection Tokens"
+    },
+    "estimate_method": {
+      "default": "utf8_upper_bound",
+      "title": "Estimate Method",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "default": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "original_tokens": {
+      "title": "Original Tokens",
+      "type": "integer"
+    },
+    "summary_tokens": {
+      "title": "Summary Tokens",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "run_id",
+    "original_tokens",
+    "summary_tokens",
+    "ts"
+  ],
+  "title": "ContextCompactedEvent",
+  "type": "object"
+}
+```
+
+### ContextCompactionFailedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | no |
+| `run_id` | `string` | yes |
+| `consecutive_failures` | `integer` | yes |
+| `circuit_open` | `boolean` | yes |
+| `reason` | `string` | yes |
+| `elapsed_ms` | `integer` | no |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.compaction_failed",
+      "default": "context.compaction_failed",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "default": "",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "consecutive_failures": {
+      "title": "Consecutive Failures",
+      "type": "integer"
+    },
+    "circuit_open": {
+      "title": "Circuit Open",
+      "type": "boolean"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "default": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "consecutive_failures",
+    "circuit_open",
+    "reason",
+    "ts"
+  ],
+  "title": "ContextCompactionFailedEvent",
+  "type": "object"
+}
+```
+
+### ContextCompactionStartedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `session_id` | `string` | yes |
+| `revision` | `integer` | yes |
+| `pre_tokens` | `integer` | yes |
+| `strategy` | `string` | no |
+| `target_low_watermark` | `number` | no |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.compaction_started",
+      "default": "context.compaction_started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    },
+    "pre_tokens": {
+      "title": "Pre Tokens",
+      "type": "integer"
+    },
+    "strategy": {
+      "default": "rolling",
+      "title": "Strategy",
+      "type": "string"
+    },
+    "target_low_watermark": {
+      "default": 0.5,
+      "title": "Target Low Watermark",
+      "type": "number"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "session_id",
+    "revision",
+    "pre_tokens",
+    "ts"
+  ],
+  "title": "ContextCompactionStartedEvent",
+  "type": "object"
+}
+```
+
+### ContextMemoryUpdatedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `run_id` | `string` | yes |
+| `revision` | `integer` | yes |
+| `source_count` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.memory_updated",
+      "default": "context.memory_updated",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    },
+    "source_count": {
+      "title": "Source Count",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "run_id",
+    "revision",
+    "source_count",
+    "ts"
+  ],
+  "title": "ContextMemoryUpdatedEvent",
+  "type": "object"
+}
+```
+
+### ContextPrunedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `count` | `integer` | yes |
+| `saved_tokens` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.pruned",
+      "default": "context.pruned",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "count": {
+      "title": "Count",
+      "type": "integer"
+    },
+    "saved_tokens": {
+      "title": "Saved Tokens",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "count",
+    "saved_tokens",
+    "ts"
+  ],
+  "title": "ContextPrunedEvent",
+  "type": "object"
+}
+```
+
+### ContextSourcesLoadedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | no |
+| `run_id` | `string` | yes |
+| `sources` | `array` | yes |
+| `diagnostics` | `array` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "context.sources_loaded",
+      "default": "context.sources_loaded",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "default": "",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "diagnostics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "sources",
+    "diagnostics",
+    "ts"
+  ],
+  "title": "ContextSourcesLoadedEvent",
+  "type": "object"
+}
+```
+
+### PermissionDeniedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "permission.denied",
+      "default": "permission.denied",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "decision",
+    "ts"
+  ],
+  "title": "PermissionDeniedEvent",
+  "type": "object"
+}
+```
+
+### PermissionGrantedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "permission.granted",
+      "default": "permission.granted",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "decision",
+    "ts"
+  ],
+  "title": "PermissionGrantedEvent",
+  "type": "object"
+}
+```
+
+### PermissionRequestedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `approval_token` | `string` | no |
+| `approval_scope` | `string` | no |
+| `policy_revision` | `string` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `tool_name` | `string` | yes |
+| `params` | `object` | yes |
+| `param_preview` | `string` | yes |
+| `session_id` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "approval_token": {
+      "default": "",
+      "title": "Approval Token",
+      "type": "string"
+    },
+    "approval_scope": {
+      "default": "",
+      "title": "Approval Scope",
+      "type": "string"
+    },
+    "policy_revision": {
+      "default": "",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "type": {
+      "const": "permission.requested",
+      "default": "permission.requested",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+    },
+    "param_preview": {
+      "title": "Param Preview",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "tool_name",
+    "params",
+    "param_preview",
+    "session_id",
+    "ts"
+  ],
+  "title": "PermissionRequestedEvent",
+  "type": "object"
+}
+```
+
+### SecurityDecisionEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `session_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `operation_id` | `string` | yes |
+| `principal_id` | `string` | yes |
+| `server_id` | `string` | yes |
+| `argument_hash` | `string` | yes |
+| `policy_revision` | `string` | yes |
+| `action` | `string` | yes |
+| `reason_code` | `string` | yes |
+| `elapsed_ms` | `integer` | no |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "security.decision",
+      "default": "security.decision",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "operation_id": {
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "principal_id": {
+      "title": "Principal Id",
+      "type": "string"
+    },
+    "server_id": {
+      "title": "Server Id",
+      "type": "string"
+    },
+    "argument_hash": {
+      "title": "Argument Hash",
+      "type": "string"
+    },
+    "policy_revision": {
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "action": {
+      "title": "Action",
+      "type": "string"
+    },
+    "reason_code": {
+      "title": "Reason Code",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "default": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "session_id",
+    "tool_use_id",
+    "operation_id",
+    "principal_id",
+    "server_id",
+    "argument_hash",
+    "policy_revision",
+    "action",
+    "reason_code",
+    "ts"
+  ],
+  "title": "SecurityDecisionEvent",
+  "type": "object"
+}
+```
+
+### SkillInvokedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `skill_name` | `string` | yes |
+| `arguments` | `string` | yes |
+| `run_id` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "skill.invoked",
+      "default": "skill.invoked",
+      "title": "Type",
+      "type": "string"
+    },
+    "skill_name": {
+      "title": "Skill Name",
+      "type": "string"
+    },
+    "arguments": {
+      "title": "Arguments",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "skill_name",
+    "arguments",
+    "run_id",
+    "ts"
+  ],
+  "title": "SkillInvokedEvent",
+  "type": "object"
+}
+```
+
+### SubagentFinishedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `parent_run_id` | `string` | yes |
+| `status` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "subagent.finished",
+      "default": "subagent.finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "parent_run_id": {
+      "title": "Parent Run Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "parent_run_id",
+    "status",
+    "ts"
+  ],
+  "title": "SubagentFinishedEvent",
+  "type": "object"
+}
+```
+
+### SubagentStartedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `parent_run_id` | `string` | yes |
+| `description` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "subagent.started",
+      "default": "subagent.started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "parent_run_id": {
+      "title": "Parent Run Id",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "parent_run_id",
+    "description",
+    "ts"
+  ],
+  "title": "SubagentStartedEvent",
+  "type": "object"
+}
+```

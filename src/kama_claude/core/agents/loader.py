@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,14 +22,17 @@ class AgentProfile:
 class AgentProfileLoader:
     _BUILTIN_DIR = Path(__file__).parent / "builtin"
 
-    # 查找指定角色配置；未找到返回 None
+    # 查找指定角色配置；解析失败时继续尝试下一优先级路径，全部失败返回 None
     def load(self, name: str) -> AgentProfile | None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ValueError("invalid agent profile name")
         for path in self._search_paths(name):
             if path.exists():
                 try:
                     return self._parse(path, name)
                 except Exception:
-                    return None
+                    logger.warning("Failed to parse agent profile %s; trying next path", path)
+                    continue
         return None
 
     # 返回 [项目本地, 用户全局, 内建] 路径；load() 返回第一个存在的，项目本地优先级最高

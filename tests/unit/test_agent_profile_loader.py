@@ -74,3 +74,23 @@ def test_project_overrides_builtin(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert profile is not None
     assert profile.description == "local planner"
     assert "list_dir" in profile.allowed_tools
+
+
+# 功能：高优先级路径解析失败时应回退到内建配置，而非直接返回 None
+# 设计：本地 .kama/agents/planner.toml 写入非法 TOML，断言 load 仍返回内建 planner
+def test_load_falls_back_on_parse_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / ".kama" / "agents"
+    local.mkdir(parents=True)
+    (local / "planner.toml").write_text("this is [ not valid toml", encoding="utf-8")
+    # 隔离用户全局路径，确保回退目标确定为内建配置
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    (tmp_path / "empty_home").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    loader = AgentProfileLoader()
+    profile = loader.load("planner")
+    assert profile is not None
+    assert profile.name == "planner"
+    assert profile.description != ""

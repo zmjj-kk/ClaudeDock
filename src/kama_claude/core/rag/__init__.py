@@ -1,5 +1,13 @@
-from kama_claude.core.rag.chunk import split_semantic
-from kama_claude.core.rag.filter import MetaValue, canonical, is_range, matches
+from kama_claude.core.rag.chunk import split_semantic, split_with_context
+from kama_claude.core.rag.filter import (
+    MetaValue,
+    canonical,
+    canonical_values,
+    is_numeric_range,
+    is_range,
+    matches,
+    select,
+)
 from kama_claude.core.rag.index import (
     Bm25Index,
     HybridIndex,
@@ -33,10 +41,14 @@ __all__ = [
     "ZhipuEmbeddingIndex",
     "ZhipuReranker",
     "canonical",
+    "canonical_values",
+    "is_numeric_range",
     "is_range",
     "matches",
     "optimize_query",
     "parse_query_list",
     "rrf_fuse",
+    "select",
     "split_semantic",
+    "split_with_context",
 ]

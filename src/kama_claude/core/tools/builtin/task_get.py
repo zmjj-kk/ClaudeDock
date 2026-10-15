@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.task.manager import TaskManager
 from kama_claude.core.tools.base import BaseTool, ToolResult
 
 
 class TaskGetTool(BaseTool):
+    capabilities = frozenset({Capability.READ})
     name = "task_get"
     description = "Get full details of a task by its integer ID. Returns the task as JSON."
     input_schema: dict[str, object] = {

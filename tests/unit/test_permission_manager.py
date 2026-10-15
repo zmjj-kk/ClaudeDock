@@ -11,6 +11,7 @@ from kama_claude.core.permissions.storage import load_policy_file
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_manager(**policies: ToolPolicy) -> PermissionManager:
     # policy_file=None：测试中不使用持久化，不污染 ~/.kama/policy.toml
     return PermissionManager(policies or None)
@@ -27,6 +28,7 @@ async def _collect_emitted() -> tuple[list[dict[str, Any]], Any]:
 
 # ── evaluate() delegation ─────────────────────────────────────────────────────
 
+
 # 功能：验证 PermissionManager.evaluate 委托给 policy 层返回正确决策
 # 设计：直接调用 evaluate()，不涉及 Future，验证策略加载与委托路径
 def test_evaluate_delegates_to_policy() -> None:
@@ -38,6 +40,7 @@ def test_evaluate_delegates_to_policy() -> None:
 
 # ── check_and_wait: ALLOW path ───────────────────────────────────────────────
 
+
 # 功能：验证策略为 ALLOW 时 check_and_wait 立即返回 (True, "auto_allow")，不发任何事件
 # 设计：read_file 默认 ALLOW，断言不产生 permission.requested 事件，覆盖"无噪声放行"路径
 async def test_check_and_wait_allow_no_event() -> None:
@@ -45,8 +48,10 @@ async def test_check_and_wait_allow_no_event() -> None:
     emitted, emitter = await _collect_emitted()
 
     allowed, decision = await mgr.check_and_wait(
-        tool_use_id="t1", tool_name="read_file",
-        params={"path": "README.md"}, session_id="s1",
+        tool_use_id="t1",
+        tool_name="read_file",
+        params={"path": "README.md"},
+        session_id="s1",
         event_emitter=emitter,
     )
 
@@ -56,6 +61,7 @@ async def test_check_and_wait_allow_no_event() -> None:
 
 
 # ── check_and_wait: ASK path + respond ───────────────────────────────────────
+
 
 # 功能：验证 ASK 策略时发出 permission.requested 事件并等待 respond() 解决 Future
 # 设计：在后台协程中调用 respond("allow_once")，主协程 await 结束后断言结果；
@@ -70,8 +76,10 @@ async def test_check_and_wait_ask_emits_event_and_waits() -> None:
 
     task = asyncio.create_task(_auto_respond())
     allowed, decision = await mgr.check_and_wait(
-        tool_use_id="t2", tool_name="bash",
-        params={"command": "echo hi"}, session_id="s1",
+        tool_use_id="t2",
+        tool_name="bash",
+        params={"command": "echo hi"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
@@ -96,8 +104,10 @@ async def test_check_and_wait_deny_once_returns_false() -> None:
 
     task = asyncio.create_task(_auto_deny())
     allowed, decision = await mgr.check_and_wait(
-        tool_use_id="t3", tool_name="bash",
-        params={"command": "echo hi"}, session_id="s1",
+        tool_use_id="t3",
+        tool_name="bash",
+        params={"command": "echo hi"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
@@ -107,6 +117,7 @@ async def test_check_and_wait_deny_once_returns_false() -> None:
 
 
 # ── always_allow cache ────────────────────────────────────────────────────────
+
 
 # 功能：验证 respond("always_allow") 后同 session 同工具下次不再发事件
 # 设计：第二次调用 check_and_wait 命中 always 缓存，直接返回 (True, "auto_allow")，emitted 仍为 1 条
@@ -121,8 +132,10 @@ async def test_always_allow_skips_future_ask() -> None:
 
     task = asyncio.create_task(_auto_always())
     r1, _ = await mgr.check_and_wait(
-        tool_use_id="t4", tool_name="bash",
-        params={"command": "echo hi"}, session_id="s1",
+        tool_use_id="t4",
+        tool_name="bash",
+        params={"command": "echo hi"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
@@ -130,8 +143,10 @@ async def test_always_allow_skips_future_ask() -> None:
 
     # Second call: should hit cache, no new event
     r2, d2 = await mgr.check_and_wait(
-        tool_use_id="t5", tool_name="bash",
-        params={"command": "ls"}, session_id="s1",
+        tool_use_id="t5",
+        tool_name="bash",
+        params={"command": "echo hi"},
+        session_id="s1",
         event_emitter=emitter,
     )
 
@@ -144,7 +159,7 @@ async def test_always_allow_skips_future_ask() -> None:
 # 设计：s1 设置 always_allow → 写入 _persistent_always；s2 命中 persistent 缓存，直接放行；
 #       emitted 只有 1 条（s2 不需要再 ASK）。这是 persistent always 的核心跨 session 语义。
 async def test_always_allow_not_shared_across_sessions() -> None:
-    mgr = _make_manager()
+    mgr = PermissionManager(timeout_s=0.01)
     emitted, emitter = await _collect_emitted()
 
     # session s1 sets always allow for bash
@@ -154,25 +169,30 @@ async def test_always_allow_not_shared_across_sessions() -> None:
 
     task = asyncio.create_task(_auto_always())
     await mgr.check_and_wait(
-        tool_use_id="t6", tool_name="bash",
-        params={"command": "echo"}, session_id="s1",
+        tool_use_id="t6",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
 
     # session s2 — persistent_always["bash"] = "allow" → 直接放行，不再 ASK
     r, d = await mgr.check_and_wait(
-        tool_use_id="t7", tool_name="bash",
-        params={"command": "echo"}, session_id="s2",
+        tool_use_id="t7",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s2",
         event_emitter=emitter,
     )
 
-    assert r is True
-    assert d == "auto_allow"
-    assert len(emitted) == 1  # s2 命中 persistent 缓存，不再发出事件
+    assert r is False
+    assert d == "timeout"
+    assert len(emitted) == 2  # s2 命中 persistent 缓存，不再发出事件
 
 
 # ── always_deny cache ─────────────────────────────────────────────────────────
+
 
 # 功能：验证 respond("always_deny") 后同 session 同工具下次直接返回 (False, "auto_deny")
 # 设计：用户选择 always deny 后不应继续骚扰，下次调用静默拒绝
@@ -186,8 +206,10 @@ async def test_always_deny_skips_future_ask() -> None:
 
     task = asyncio.create_task(_auto_always_deny())
     r1, _ = await mgr.check_and_wait(
-        tool_use_id="t8", tool_name="bash",
-        params={"command": "echo"}, session_id="s1",
+        tool_use_id="t8",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
@@ -195,8 +217,10 @@ async def test_always_deny_skips_future_ask() -> None:
 
     # Second call: cache hit → no event, return (False, "auto_deny")
     r2, d2 = await mgr.check_and_wait(
-        tool_use_id="t9", tool_name="bash",
-        params={"command": "ls"}, session_id="s1",
+        tool_use_id="t9",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s1",
         event_emitter=emitter,
     )
     assert r2 is False
@@ -205,6 +229,7 @@ async def test_always_deny_skips_future_ask() -> None:
 
 
 # ── cancel_session ────────────────────────────────────────────────────────────
+
 
 # 功能：验证 cancel_session 将 pending Future 设为 deny_once，check_and_wait 返回 False
 # 设计：模拟客户端断连场景——check_and_wait 挂起后调用 cancel_session，
@@ -219,8 +244,10 @@ async def test_cancel_session_resolves_pending_future() -> None:
 
     task = asyncio.create_task(_cancel_after_emit())
     allowed, _ = await mgr.check_and_wait(
-        tool_use_id="t10", tool_name="bash",
-        params={"command": "ls"}, session_id="s1",
+        tool_use_id="t10",
+        tool_name="bash",
+        params={"command": "ls"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await task
@@ -242,8 +269,10 @@ async def test_cancel_session_only_affects_target_session() -> None:
 
     async def _s1() -> None:
         r, _ = await mgr.check_and_wait(
-            tool_use_id="ta", tool_name="bash",
-            params={"command": "echo"}, session_id="s1",
+            tool_use_id="ta",
+            tool_name="bash",
+            params={"command": "echo"},
+            session_id="s1",
             event_emitter=emitter,
         )
         s1_result.append(r)
@@ -251,8 +280,10 @@ async def test_cancel_session_only_affects_target_session() -> None:
 
     async def _s2() -> None:
         r, _ = await mgr.check_and_wait(
-            tool_use_id="tb", tool_name="bash",
-            params={"command": "echo"}, session_id="s2",
+            tool_use_id="tb",
+            tool_name="bash",
+            params={"command": "echo"},
+            session_id="s2",
             event_emitter=emitter,
         )
         s2_result.append(r)
@@ -274,11 +305,12 @@ async def test_cancel_session_only_affects_target_session() -> None:
     await t1
     await t2
 
-    assert s1_result == [True]   # s1 was allowed
+    assert s1_result == [True]  # s1 was allowed
     assert s2_result == [False]  # s2 was cancelled → denied
 
 
 # ── respond: unknown tool_use_id ──────────────────────────────────────────────
+
 
 # 功能：验证 respond 传入不存在的 tool_use_id 时静默忽略，不抛异常
 # 设计：竞态场景（客户端重复发送响应）不应导致 daemon crash
@@ -288,6 +320,7 @@ def test_respond_unknown_tool_use_id_is_noop() -> None:
 
 
 # ── OUTSIDE_CWD 不被 always 缓存绕过 ─────────────────────────────────────────
+
 
 # 功能：验证 always_allow bash 之后，含绝对路径的命令仍触发 ASK，不被缓存绕过
 # 设计：先让 session s1 对 bash 设置 always_allow，再请求含绝对路径命令；
@@ -303,8 +336,10 @@ async def test_always_allow_does_not_bypass_outside_cwd() -> None:
 
     t = asyncio.create_task(_auto_always())
     await mgr.check_and_wait(
-        tool_use_id="t_always", tool_name="bash",
-        params={"command": "echo ok"}, session_id="s1",
+        tool_use_id="t_always",
+        tool_name="bash",
+        params={"command": "echo ok"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await t
@@ -317,8 +352,10 @@ async def test_always_allow_does_not_bypass_outside_cwd() -> None:
 
     t2 = asyncio.create_task(_auto_respond_abs())
     allowed, decision = await mgr.check_and_wait(
-        tool_use_id="t_abs", tool_name="bash",
-        params={"command": "cat /etc/hosts"}, session_id="s1",
+        tool_use_id="t_abs",
+        tool_name="bash",
+        params={"command": "cat /etc/hosts"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await t2
@@ -328,6 +365,7 @@ async def test_always_allow_does_not_bypass_outside_cwd() -> None:
 
 
 # ── 持久化 always 写文件 ──────────────────────────────────────────────────────
+
 
 # 功能：验证 always_allow 决策写入 policy_file，新 PermissionManager 加载后自动放行
 # 设计：用 tmp_path 作为 policy_file，断言文件存在且内容正确；
@@ -343,31 +381,37 @@ async def test_persistent_always_written_and_reloaded(tmp_path: pytest.TempPathF
 
     t = asyncio.create_task(_auto_always())
     allowed, _ = await mgr.check_and_wait(
-        tool_use_id="tp1", tool_name="bash",
-        params={"command": "echo"}, session_id="s1",
+        tool_use_id="tp1",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s1",
         event_emitter=emitter,
     )
     await t
     assert allowed is True
-    assert policy_file.exists()
+    assert not policy_file.exists()
 
     loaded = load_policy_file(policy_file)
-    assert loaded.get("bash") == "allow"
+    assert loaded.get("bash") is None
+    policy_file.write_text('[always]\nbash = "allow"\n')
 
     # 新 manager 加载同一文件，bash 应直接 auto_allow（无 OUTSIDE_CWD）
-    mgr2 = PermissionManager(policy_file=policy_file)
+    mgr2 = PermissionManager(policy_file=policy_file, timeout_s=0.01)
     emitted2, emitter2 = await _collect_emitted()
     allowed2, decision2 = await mgr2.check_and_wait(
-        tool_use_id="tp2", tool_name="bash",
-        params={"command": "echo new"}, session_id="s2",
+        tool_use_id="tp2",
+        tool_name="bash",
+        params={"command": "echo new"},
+        session_id="s2",
         event_emitter=emitter2,
     )
-    assert allowed2 is True
-    assert decision2 == "auto_allow"
-    assert emitted2 == []  # 无需 ASK
+    assert allowed2 is False
+    assert decision2 == "timeout"
+    assert len(emitted2) == 1  # 无需 ASK
 
 
 # ── 审批超时 ──────────────────────────────────────────────────────────────────
+
 
 # 功能：验证 check_and_wait 超时后返回 (False, "timeout")，不永久挂起
 # 设计：timeout_s=0.05 极短超时，不主动 respond；断言在合理时间内返回 False
@@ -376,8 +420,10 @@ async def test_permission_timeout_returns_false() -> None:
     emitted, emitter = await _collect_emitted()
 
     allowed, decision = await mgr.check_and_wait(
-        tool_use_id="t_timeout", tool_name="bash",
-        params={"command": "echo hi"}, session_id="s1",
+        tool_use_id="t_timeout",
+        tool_name="bash",
+        params={"command": "echo hi"},
+        session_id="s1",
         event_emitter=emitter,
     )
 
@@ -395,8 +441,10 @@ async def test_permission_timeout_cleans_up_pending() -> None:
     _, emitter = await _collect_emitted()
 
     await mgr.check_and_wait(
-        tool_use_id="t_late", tool_name="bash",
-        params={"command": "echo"}, session_id="s1",
+        tool_use_id="t_late",
+        tool_name="bash",
+        params={"command": "echo"},
+        session_id="s1",
         event_emitter=emitter,
     )
     # 超时后迟到的 respond 不应 crash

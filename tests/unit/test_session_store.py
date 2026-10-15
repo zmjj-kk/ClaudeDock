@@ -89,3 +89,29 @@ def test_notes_read_and_append(tmp_path: Path) -> None:
     notes = store.read_notes("sess-1")
     assert "Python 3.12" in notes
     assert "run-1" in notes
+
+
+# 功能：验证读取 thread 时连续 user 消息被合并为一条，避免 API 收到相邻同 role 报错
+# 设计：追加两条 user 消息，read_messages 应返回一条以换行拼接的 user 消息，覆盖中断恢复后续聊场景
+def test_read_messages_merges_consecutive_user(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    store.append_message("sess-1", "user", "第一句")
+    store.append_message("sess-1", "user", "第二句")
+
+    assert store.read_messages("sess-1") == [
+        {"role": "user", "content": "第一句\n\n第二句"}
+    ]
+
+
+# 功能：验证 thread_ends_with_user 能区分"干净收尾"与"中断在 user 消息后"
+# 设计：分别构造以 assistant 收尾与以 user 收尾的 thread，断言布尔结果，覆盖 restore 的中断检测依据
+def test_thread_ends_with_user_detects_interruption(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    assert store.thread_ends_with_user("sess-1") is False  # 空 thread 不算中断
+
+    store.append_message("sess-1", "user", "问题")
+    store.append_message("sess-1", "assistant", [{"type": "text", "text": "回答"}])
+    assert store.thread_ends_with_user("sess-1") is False  # assistant 收尾 = 干净
+
+    store.append_message("sess-1", "user", "又一句被打断")
+    assert store.thread_ends_with_user("sess-1") is True  # user 收尾 = 中断

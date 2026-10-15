@@ -113,3 +113,41 @@ async def test_consolidate_empty_plan_is_noop(tmp_path: Path) -> None:
     assert result.replace == []
     assert result.retire == []
     assert store.count() == 1
+
+
+# 功能：验证 inject 按重要度而非更新时间挑选偏好
+# 设计：写入两条 importance 差异明显的偏好，top_n=1 时只应注入高重要度那条
+async def test_inject_ranks_preferences_by_importance(tmp_path: Path) -> None:
+    store, _ = _make_store(tmp_path)
+    await store.load()
+    await store.add("高重要度偏好", kind="preference", importance=0.9)
+    await store.add("低重要度偏好", kind="preference", importance=0.2)
+    block = await store.inject(top_n=1)
+    assert "高重要度偏好" in block
+    assert "低重要度偏好" not in block
+
+
+# 功能：验证 load 只把 active 条目纳入向量索引，退休条目不再嵌入
+# 设计：写入一条 knowledge 后置为 superseded，load 后 _vector_entries 应为空
+async def test_load_excludes_retired_from_vector(tmp_path: Path) -> None:
+    store, sqlite = _make_store(tmp_path)
+    await store.load()
+    entry = await store.add("一条知识", kind="knowledge")
+    assert entry is not None
+    sqlite.set_status(entry.id, "superseded", "2026-01-01T00:00:00+00:00")
+    await store.load()
+    assert store._vector_entries == []
+
+
+# 功能：验证 inject 按项目维度过滤：注入当前项目 + 全局记忆，排除其它项目
+# 设计：写入项目 A、项目 B、全局三条偏好，inject(project="A") 只含 A 与全局
+async def test_inject_filters_by_project(tmp_path: Path) -> None:
+    store, _ = _make_store(tmp_path)
+    await store.load()
+    await store.add("项目 A 偏好", kind="preference", project="A", importance=0.9)
+    await store.add("项目 B 偏好", kind="preference", project="B", importance=0.9)
+    await store.add("全局偏好", kind="preference", importance=0.9)
+    block = await store.inject(top_n=10, project="A")
+    assert "项目 A 偏好" in block
+    assert "全局偏好" in block
+    assert "项目 B 偏好" not in block

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import math
 import os
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+
+from kama_claude.core.llm.pricing import validate_prices
+from kama_claude.core.runtime_config import RuntimeConfig, apply_runtime
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 7437
@@ -19,6 +23,7 @@ _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_TRACE_FILE = "~/.kama/traces/daemon.jsonl"
 _DEFAULT_RAG_KNOWLEDGE_DIR = "~/.kama/knowledge"
 _DEFAULT_MEMORY_STORE_DIR = "~/.kama/memory"
+_DEFAULT_SESSIONS_DIR = "~/.kama/sessions"
 _RETRIEVER_CHOICES = ("auto", "bm25", "embedding", "hybrid")
 
 
@@ -36,6 +41,7 @@ class AgentConfig:
 
 @dataclass
 class LlmConfig:
+    prices: dict[str, dict[str, float]] = field(default_factory=dict)
     default_model: str = _DEFAULT_MODEL
     router: str = "static"  # "static" | "rule_based" (S4) | "cost_budget" (S6)
 
@@ -44,11 +50,17 @@ class LlmConfig:
 class TraceConfig:
     enabled: bool = True
     file: str = _DEFAULT_TRACE_FILE
-    include_llm_payload: bool = True  # false 时 LLM 记录只保留摘要
+    include_llm_payload: bool = False  # false 时 LLM 记录只保留摘要
 
 
 @dataclass
 class PermissionConfig:
+    mode: str = "default"
+    bypass_enabled: bool = False
+    classifier_enabled: bool = False
+    classifier_model: str = ""
+    classifier_timeout_s: float = 10.0
+    classifier_max_calls: int = 100
     timeout_s: float = 60.0  # 审批超时秒数；0 表示不超时
 
 
@@ -56,18 +68,88 @@ class PermissionConfig:
 class CompactionConfig:
     auto_threshold: float = 0.0  # context_pct 触发自动压缩的阈值（0 禁用，推荐手动 /compact）
     tool_result_limit: int = 8_000  # tool_result 截断触发字符数
-    tool_result_keep: int = 4_000   # 截断后保留的前缀字符数
+    tool_result_keep: int = 4_000  # 截断后保留的前缀字符数
+    enabled: bool = False
+    instruction_sources_enabled: bool = False
+    session_memory_enabled: bool = False
+    memory_provenance_enabled: bool = False
+    prompt_cache_enabled: bool = False
+    tool_schema_deferred: bool = False
+    structured_handoff_enabled: bool = False
+    memory_injection_token_budget: int = 4096
+    instruction_max_bytes: int = 32768
+    preflight_mode: str = "shadow"
+    model_context_window: int | None = None
+    high_watermark: float = 0.80
+    low_watermark: float = 0.50
+    safety_margin_ratio: float = 0.05
+    recent_turns_min: int = 4
+    tool_result_budget_enabled: bool = False
+    tool_result_max_bytes: int = 65536
+    tool_round_max_bytes: int = 131072
+    tool_preview_max_chars: int = 4000
+    tool_result_quota_bytes: int = 67108864
+    tool_result_retention_days: int = 30
+    microcompact_enabled: bool = False
+    max_consecutive_failures: int = 3
+    reactive_max_retries: int = 1
+    min_steps_between: int = 3
+    min_growth_ratio: float = 0.10
+
+    # 校验独立功能开关、窗口水位与有界存储配置
+    def validate(self) -> None:
+        for name in (
+            "enabled",
+            "instruction_sources_enabled",
+            "session_memory_enabled",
+            "memory_provenance_enabled",
+            "prompt_cache_enabled",
+            "tool_schema_deferred",
+            "structured_handoff_enabled",
+            "tool_result_budget_enabled",
+            "microcompact_enabled",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if self.preflight_mode not in {"shadow", "enforce"}:
+            raise ValueError("preflight_mode must be shadow or enforce")
+        if not 0 < self.low_watermark < self.high_watermark < 1:
+            raise ValueError("require 0 < low_watermark < high_watermark < 1")
+        if not 0 <= self.safety_margin_ratio < 0.5 or not 0 <= self.min_growth_ratio <= 1:
+            raise ValueError("invalid safety or growth ratio")
+        if self.model_context_window is not None and self.model_context_window <= 0:
+            raise ValueError("model_context_window must be positive")
+        for name in (
+            "memory_injection_token_budget",
+            "instruction_max_bytes",
+            "recent_turns_min",
+            "tool_result_max_bytes",
+            "tool_round_max_bytes",
+            "tool_preview_max_chars",
+            "tool_result_quota_bytes",
+            "tool_result_retention_days",
+            "max_consecutive_failures",
+            "min_steps_between",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or not 1 <= value <= 1_000_000_000:
+                raise ValueError(f"{name} must be a bounded positive integer")
+        if type(self.reactive_max_retries) is not int or not 0 <= self.reactive_max_retries <= 2:
+            raise ValueError("reactive_max_retries must be between 0 and 2")
 
 
 @dataclass
 class McpServerConfig:
+    # 只有受信全局配置可授予工具能力；缺省发现不授予执行权限
     name: str
-    transport: str = "stdio"       # "stdio" | "tcp"
-    command: str = ""              # stdio 专用：可执行文件路径
+    tool_capabilities: dict[str, list[str]] = field(default_factory=dict)
+    transport: str = "stdio"  # "stdio" | "tcp"
+    command: str = ""  # stdio 专用：可执行文件路径
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
-    host: str = "localhost"        # tcp 专用
-    port: int = 3000               # tcp 专用
+    host: str = "127.0.0.1"  # tcp 专用
+    port: int = 3000  # tcp 专用
+    read_timeout: float = 30.0  # 单次响应读取超时（秒），防止长时工具被误杀
 
 
 @dataclass
@@ -77,43 +159,51 @@ class McpConfig:
 
 @dataclass
 class RagConfig:
-    enabled: bool = False              # 是否注册 rag_search 工具（false 时完全不加载知识库）
+    enabled: bool = False  # 是否注册 rag_search 工具（false 时完全不加载知识库）
     knowledge_dir: str = _DEFAULT_RAG_KNOWLEDGE_DIR  # 知识库根目录，递归读取 .md/.txt
-    top_k: int = 3                     # 每次检索返回的 chunk 数
-    chunk_size: int = 800              # 语义切片的目标/上限字符数
-    chunk_overlap: int = 100           # 超长单元硬切回退时的重叠字符数
-    api_key: str = ""                  # 智谱 API key；留空则回退本地 TF-IDF
+    top_k: int = 3  # 每次检索返回的 chunk 数
+    chunk_size: int = 800  # 语义切片的目标/上限字符数
+    chunk_overlap: int = 100  # 超长单元硬切回退时的重叠字符数
+    api_key: str = ""  # 智谱 API key；留空则回退本地 TF-IDF
     embedding_model: str = "embedding-3"  # 智谱 embedding 模型名
     embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4"  # embedding API 根地址
-    embedding_dimensions: int = 2048   # 输出向量维度（256/512/1024/2048）
-    embedding_batch_size: int = 64     # 单次请求最大输入条数（≤64）
-    index_cache: bool = True           # 是否将向量落盘缓存，避免重启重复计费
-    retriever: str = "auto"            # 检索后端：auto/bm25/embedding/hybrid
-    rerank_enabled: bool = False       # 是否在检索后加 rerank 精排（按量计费，默认关闭）
-    rerank_model: str = "rerank"       # 智谱 rerank 模型代码（官方公共重排序模型为 "rerank"）
-    rerank_depth: int = 50             # rerank 前取回的候选 chunk 数（受 API ≤64 上限约束）
-    vector_db: str = ""                # 向量数据库后端；留空走内置 JSON 缓存，可选 "qdrant"
-    qdrant_url: str = ""               # Qdrant 服务地址；留空走本地 local mode（路径持久化）
+    embedding_dimensions: int = 2048  # 输出向量维度（256/512/1024/2048）
+    embedding_batch_size: int = 64  # 单次请求最大输入条数（≤64）
+    index_cache: bool = True  # 是否将向量落盘缓存，避免重启重复计费
+    retriever: str = "auto"  # 检索后端：auto/bm25/embedding/hybrid
+    rerank_enabled: bool = False  # 是否在检索后加 rerank 精排（按量计费，默认关闭）
+    rerank_model: str = "rerank"  # 智谱 rerank 模型代码（官方公共重排序模型为 "rerank"）
+    rerank_depth: int = 50  # rerank 前取回的候选 chunk 数（受 API ≤64 上限约束）
+    vector_db: str = ""  # 向量数据库后端；留空走内置 JSON 缓存，可选 "qdrant"
+    qdrant_url: str = ""  # Qdrant 服务地址；留空走本地 local mode（路径持久化）
     qdrant_path: str = "~/.kama/qdrant"  # Qdrant local mode 的持久化目录
     query_enhance_enabled: bool = False  # 是否启用 LLM 查询改写+拓展（按量计费，默认关闭）
-    query_expand_n: int = 3            # 查询拓展生成的子查询条数（≥1）
-    query_depth: int = 10              # 多查询融合时每条子查询的召回候选数
+    query_expand_n: int = 3  # 查询拓展生成的子查询条数（≥1）
+    query_depth: int = 10  # 多查询融合时每条子查询的召回候选数
+
+
+@dataclass
+class SkillConfig:
+    enabled: bool = True  # 是否注册 use_skill/read_skill_resource 并注入技能索引
 
 
 @dataclass
 class MemoryConfig:
-    enabled: bool = False             # 是否注册 memory_* 工具并启用长期记忆层
+    enabled: bool = False  # 是否注册 memory_* 工具并启用长期记忆层
     store_dir: str = _DEFAULT_MEMORY_STORE_DIR  # sqlite 库与向量缓存的根目录
-    inject_top_n: int = 5             # 主动注入 System Prompt 的记忆条数
-    search_top_k: int = 5             # memory_search 默认返回条数
-    max_structured_len: int = 500     # 超过此长度的内容改走向量层
-    dedup_threshold: float = 0.90     # vector 层语义去重阈值
-    half_life_days: float = 30.0      # recency 衰减半衰期（天）
-    max_entries: int = 5000           # 超过此阈值触发自动整合
+    inject_top_n: int = 5  # 主动注入 System Prompt 的记忆条数
+    search_top_k: int = 5  # memory_search 默认返回条数
+    max_structured_len: int = 500  # 超过此长度的内容改走向量层
+    dedup_threshold: float = 0.90  # vector 层语义去重阈值
+    half_life_days: float = 30.0  # recency 衰减半衰期（天）
+    max_entries: int = 5000  # 超过此阈值触发自动整合
 
 
 @dataclass
 class KamaConfig:
+    tls_cert: str = ""
+    tls_key: str = ""
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -125,14 +215,27 @@ class KamaConfig:
     mcp: McpConfig = field(default_factory=McpConfig)
     rag: RagConfig = field(default_factory=RagConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    skill: SkillConfig = field(default_factory=SkillConfig)
+    sessions_dir: str = _DEFAULT_SESSIONS_DIR
 
 
 # 构建并返回运行时配置：默认值 → 全局 TOML → 项目本地 TOML → .env → 系统环境变量（后者优先级最高）
 def get_config() -> KamaConfig:
     config = KamaConfig()
 
-    # .env 必须在读取 KAMA_CONFIG 之前加载，以便 .env 中的 KAMA_CONFIG 能影响 TOML 路径
+    # 先保存宿主安全启动变量，项目 .env 只能补充普通配置而不能重定向授权来源
+    authority_keys = (
+        "KAMA_CONFIG",
+        "KAMA_PERMISSION_MODE",
+        "KAMA_SECURITY_CLASSIFIER_API_KEY",
+    )
+    authority = {key: os.environ.get(key) for key in authority_keys}
     load_dotenv(".env", override=False)
+    for key, value in authority.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
     # 若显式指定 KAMA_CONFIG，只读该文件；否则按优先级叠加：全局 → 项目本地
     explicit = os.environ.get("KAMA_CONFIG")
@@ -146,33 +249,80 @@ def get_config() -> KamaConfig:
 
     for config_path in config_paths:
         if config_path.exists():
+            if config_path.is_symlink() or config_path.stat().st_mode & 0o022:
+                raise SystemExit("Config authority must be a private non-symlink file")
             try:
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
             except tomllib.TOMLDecodeError as e:
                 raise SystemExit(f"Config parse error ({config_path}): {e}") from e
+            if config_path == Path(".kama/config.toml") and any(
+                key in data for key in ("permission", "mcp")
+            ):
+                raise SystemExit(
+                    "Project config cannot define permission/MCP authority; use global config"
+                )
             _apply_toml(config, data)
 
     _apply_env(config)
+    mode = os.getenv("KAMA_PERMISSION_MODE", config.permission.mode)
+    if mode not in {"default", "plan", "auto", "bypass"}:
+        raise SystemExit("Invalid KAMA_PERMISSION_MODE")
+    config.permission.mode = mode
+    if mode == "bypass" and not config.permission.bypass_enabled:
+        raise SystemExit("bypass requires trusted global permission.bypass_enabled")
+
+    config.tls_cert = os.environ.get("KAMA_TLS_CERT", config.tls_cert)
+    config.tls_key = os.environ.get("KAMA_TLS_KEY", config.tls_key)
+    if bool(config.tls_cert) != bool(config.tls_key):
+        raise SystemExit("TLS certificate and key must be configured together")
+    apply_runtime(config.runtime, {}, environment=True)
+    if config.compaction.tool_result_keep > config.compaction.tool_result_limit:
+        raise SystemExit("compaction.tool_result_keep exceeds tool_result_limit")
     return config
 
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
     unknown = set(data.keys()) - {
-        "core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp",
-        "rag", "memory",
+        "core",
+        "logging",
+        "agent",
+        "llm",
+        "trace",
+        "permission",
+        "compaction",
+        "mcp",
+        "rag",
+        "memory",
+        "skill",
+        "runtime",
     }
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
+    if "runtime" in data:
+        if not isinstance(data["runtime"], dict):
+            raise SystemExit("Config error: [runtime] must be a table")
+        apply_runtime(config.runtime, data["runtime"])
     if "core" in data:
         core = data["core"]
         if not isinstance(core, dict):
             raise SystemExit("Config error: [core] must be a table")
-        unknown_core: set[str] = set(core.keys()) - {"host", "port"}
+        unknown_core: set[str] = set(core.keys()) - {
+            "host",
+            "port",
+            "sessions_dir",
+            "tls_cert",
+            "tls_key",
+        }
         if unknown_core:
             raise SystemExit(f"Unknown [core] keys: {', '.join(sorted(unknown_core))}")
+        for key in ("tls_cert", "tls_key"):
+            if key in core:
+                if not isinstance(core[key], str):
+                    raise SystemExit(f"core.{key} must be a string")
+                setattr(config, key, core[key])
         if "host" in core:
             val = core["host"]
             if not isinstance(val, str):
@@ -183,6 +333,11 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
             if not isinstance(val, int):
                 raise SystemExit("Config error: core.port must be an integer")
             config.port = val
+        if "sessions_dir" in core:
+            val = core["sessions_dir"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: core.sessions_dir must be a string")
+            config.sessions_dir = val
 
     if "logging" in data:
         log = data["logging"]
@@ -215,9 +370,11 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         llm = data["llm"]
         if not isinstance(llm, dict):
             raise SystemExit("Config error: [llm] must be a table")
-        unknown_llm: set[str] = set(llm.keys()) - {"default_model", "router"}
+        unknown_llm: set[str] = set(llm.keys()) - {"default_model", "router", "prices"}
         if unknown_llm:
             raise SystemExit(f"Unknown [llm] keys: {', '.join(sorted(unknown_llm))}")
+        if "prices" in llm:
+            config.llm.prices = validate_prices(llm["prices"])
         if "default_model" in llm:
             val = llm["default_model"]
             if not isinstance(val, str):
@@ -256,12 +413,32 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         perm = data["permission"]
         if not isinstance(perm, dict):
             raise SystemExit("Config error: [permission] must be a table")
-        unknown_perm: set[str] = set(perm.keys()) - {"timeout_s"}
+        unknown_perm: set[str] = set(perm.keys()) - {f.name for f in fields(PermissionConfig)}
         if unknown_perm:
             raise SystemExit(f"Unknown [permission] keys: {', '.join(sorted(unknown_perm))}")
+        for key, value in perm.items():
+            if key == "timeout_s":
+                continue
+            default = getattr(PermissionConfig(), key)
+            if type(value) is not type(default) and not (
+                type(default) is float and type(value) is int
+            ):
+                raise SystemExit(f"Invalid permission.{key} type")
+            setattr(config.permission, key, value)
+        if config.permission.mode not in {"default", "plan", "auto", "bypass"}:
+            raise SystemExit("Invalid permission.mode")
+        if not 0 < config.permission.classifier_timeout_s <= 60:
+            raise SystemExit("Invalid classifier timeout")
+        if not 1 <= config.permission.classifier_max_calls <= 10000:
+            raise SystemExit("Invalid classifier quota")
         if "timeout_s" in perm:
             val = perm["timeout_s"]
-            if not isinstance(val, (int, float)) or val < 0:
+            if (
+                not isinstance(val, (int, float))
+                or isinstance(val, bool)
+                or not math.isfinite(val)
+                or val < 0
+            ):
                 raise SystemExit("Config error: permission.timeout_s must be a non-negative number")
             config.permission.timeout_s = float(val)
 
@@ -269,9 +446,7 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         comp = data["compaction"]
         if not isinstance(comp, dict):
             raise SystemExit("Config error: [compaction] must be a table")
-        unknown_comp: set[str] = set(comp.keys()) - {
-            "auto_threshold", "tool_result_limit", "tool_result_keep"
-        }
+        unknown_comp: set[str] = set(comp.keys()) - {f.name for f in fields(CompactionConfig)}
         if unknown_comp:
             raise SystemExit(f"Unknown [compaction] keys: {', '.join(sorted(unknown_comp))}")
         if "auto_threshold" in comp:
@@ -293,6 +468,23 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                     "Config error: compaction.tool_result_keep must be a positive integer"
                 )
             config.compaction.tool_result_keep = val
+        for key, value in comp.items():
+            if key in {"auto_threshold", "tool_result_limit", "tool_result_keep"}:
+                continue
+            default = getattr(CompactionConfig(), key)
+            if key == "model_context_window":
+                valid = type(value) is int
+            elif type(default) is float:
+                valid = type(value) in (int, float)
+            else:
+                valid = type(value) is type(default)
+            if not valid:
+                raise SystemExit(f"Config error: invalid compaction.{key} type")
+            setattr(config.compaction, key, value)
+        try:
+            config.compaction.validate()
+        except ValueError as exc:
+            raise SystemExit(f"Config error: {exc}") from exc
 
     if "mcp" in data:
         mcp = data["mcp"]
@@ -316,6 +508,18 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                     f"Config error: mcp.servers[{i}].transport must be 'stdio' or 'tcp'"
                 )
             s = McpServerConfig(name=name, transport=transport)
+            grants = srv.get("tool_capabilities", {})
+            allowed_caps = {"read", "write", "execute", "network", "external_effect"}
+            if not isinstance(grants, dict) or any(
+                not isinstance(k, str)
+                or not isinstance(v, list)
+                or not v
+                or any(not isinstance(c, str) or c not in allowed_caps for c in v)
+                for k, v in grants.items()
+            ):
+                raise SystemExit("Invalid MCP tool_capabilities")
+            s.tool_capabilities = grants
+
             if "command" in srv:
                 val = srv["command"]
                 if not isinstance(val, str):
@@ -341,6 +545,13 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
                 if not isinstance(val, int):
                     raise SystemExit(f"Config error: mcp.servers[{i}].port must be an integer")
                 s.port = val
+            if "read_timeout" in srv:
+                val = srv["read_timeout"]
+                if not isinstance(val, (int, float)) or val <= 0:
+                    raise SystemExit(
+                        f"Config error: mcp.servers[{i}].read_timeout must be a positive number"
+                    )
+                s.read_timeout = float(val)
             config.mcp.servers.append(s)
 
     if "rag" in data:
@@ -348,12 +559,27 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         if not isinstance(rag, dict):
             raise SystemExit("Config error: [rag] must be a table")
         unknown_rag: set[str] = set(rag.keys()) - {
-            "enabled", "knowledge_dir", "top_k", "chunk_size", "chunk_overlap",
-            "api_key", "embedding_model", "embedding_base_url", "embedding_dimensions",
-            "embedding_batch_size", "index_cache", "retriever",
-            "rerank_enabled", "rerank_model", "rerank_depth",
-            "vector_db", "qdrant_url", "qdrant_path",
-            "query_enhance_enabled", "query_expand_n", "query_depth",
+            "enabled",
+            "knowledge_dir",
+            "top_k",
+            "chunk_size",
+            "chunk_overlap",
+            "api_key",
+            "embedding_model",
+            "embedding_base_url",
+            "embedding_dimensions",
+            "embedding_batch_size",
+            "index_cache",
+            "retriever",
+            "rerank_enabled",
+            "rerank_model",
+            "rerank_depth",
+            "vector_db",
+            "qdrant_url",
+            "qdrant_path",
+            "query_enhance_enabled",
+            "query_expand_n",
+            "query_depth",
         }
         if unknown_rag:
             raise SystemExit(f"Unknown [rag] keys: {', '.join(sorted(unknown_rag))}")
@@ -462,16 +688,12 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         if "query_expand_n" in rag:
             val = rag["query_expand_n"]
             if not isinstance(val, int) or val <= 0:
-                raise SystemExit(
-                    "Config error: rag.query_expand_n must be a positive integer"
-                )
+                raise SystemExit("Config error: rag.query_expand_n must be a positive integer")
             config.rag.query_expand_n = val
         if "query_depth" in rag:
             val = rag["query_depth"]
             if not isinstance(val, int) or val <= 0:
-                raise SystemExit(
-                    "Config error: rag.query_depth must be a positive integer"
-                )
+                raise SystemExit("Config error: rag.query_depth must be a positive integer")
             config.rag.query_depth = val
 
     if "memory" in data:
@@ -479,8 +701,14 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         if not isinstance(mem, dict):
             raise SystemExit("Config error: [memory] must be a table")
         unknown_mem: set[str] = set(mem.keys()) - {
-            "enabled", "store_dir", "inject_top_n", "search_top_k",
-            "max_structured_len", "dedup_threshold", "half_life_days", "max_entries",
+            "enabled",
+            "store_dir",
+            "inject_top_n",
+            "search_top_k",
+            "max_structured_len",
+            "dedup_threshold",
+            "half_life_days",
+            "max_entries",
         }
         if unknown_mem:
             raise SystemExit(f"Unknown [memory] keys: {', '.join(sorted(unknown_mem))}")
@@ -521,15 +749,26 @@ def _apply_toml(config: KamaConfig, data: dict[str, Any]) -> None:
         if "half_life_days" in mem:
             val = mem["half_life_days"]
             if not isinstance(val, (int, float)) or val <= 0:
-                raise SystemExit(
-                    "Config error: memory.half_life_days must be a positive number"
-                )
+                raise SystemExit("Config error: memory.half_life_days must be a positive number")
             config.memory.half_life_days = float(val)
         if "max_entries" in mem:
             val = mem["max_entries"]
             if not isinstance(val, int) or val <= 0:
                 raise SystemExit("Config error: memory.max_entries must be a positive integer")
             config.memory.max_entries = val
+
+    if "skill" in data:
+        skill = data["skill"]
+        if not isinstance(skill, dict):
+            raise SystemExit("Config error: [skill] must be a table")
+        unknown_skill: set[str] = set(skill.keys()) - {"enabled"}
+        if unknown_skill:
+            raise SystemExit(f"Unknown [skill] keys: {', '.join(sorted(unknown_skill))}")
+        if "enabled" in skill:
+            val = skill["enabled"]
+            if not isinstance(val, bool):
+                raise SystemExit("Config error: skill.enabled must be a boolean")
+            config.skill.enabled = val
 
 
 # 用 KAMA_* 环境变量覆盖 config 中对应字段（若变量已设置）
@@ -544,6 +783,10 @@ def _apply_env(config: KamaConfig) -> None:
             config.port = int(port_str)
         except ValueError:
             raise SystemExit(f"Config error: KAMA_PORT must be an integer, got: {port_str!r}")
+
+    sessions_dir = os.environ.get("KAMA_SESSIONS_DIR")
+    if sessions_dir is not None:
+        config.sessions_dir = sessions_dir
 
     log_level = os.environ.get("KAMA_LOG_LEVEL")
     if log_level is not None:
@@ -592,7 +835,7 @@ def _apply_env(config: KamaConfig) -> None:
     if perm_timeout is not None:
         try:
             perm_timeout_val = float(perm_timeout)
-            if perm_timeout_val < 0:
+            if not math.isfinite(perm_timeout_val) or perm_timeout_val < 0:
                 raise SystemExit(
                     f"Config error: KAMA_PERMISSION_TIMEOUT_S must be >= 0, got: {perm_timeout!r}"
                 )
@@ -667,9 +910,7 @@ def _apply_env(config: KamaConfig) -> None:
                 )
             config.rag.top_k = rag_top_k_val
         except ValueError:
-            raise SystemExit(
-                f"Config error: KAMA_RAG_TOP_K must be an integer, got: {rag_top_k!r}"
-            )
+            raise SystemExit(f"Config error: KAMA_RAG_TOP_K must be an integer, got: {rag_top_k!r}")
 
     rag_chunk_size = os.environ.get("KAMA_RAG_CHUNK_SIZE")
     if rag_chunk_size is not None:
@@ -683,8 +924,7 @@ def _apply_env(config: KamaConfig) -> None:
             config.rag.chunk_size = rag_chunk_size_val
         except ValueError:
             raise SystemExit(
-                "Config error: KAMA_RAG_CHUNK_SIZE must be an integer, "
-                f"got: {rag_chunk_size!r}"
+                f"Config error: KAMA_RAG_CHUNK_SIZE must be an integer, got: {rag_chunk_size!r}"
             )
 
     rag_chunk_overlap = os.environ.get("KAMA_RAG_CHUNK_OVERLAP")
@@ -780,8 +1020,7 @@ def _apply_env(config: KamaConfig) -> None:
             config.rag.rerank_depth = rag_rerank_depth_val
         except ValueError:
             raise SystemExit(
-                "Config error: KAMA_RAG_RERANK_DEPTH must be an integer, "
-                f"got: {rag_rerank_depth!r}"
+                f"Config error: KAMA_RAG_RERANK_DEPTH must be an integer, got: {rag_rerank_depth!r}"
             )
 
     rag_vector_db = os.environ.get("KAMA_RAG_VECTOR_DB")
@@ -828,8 +1067,7 @@ def _apply_env(config: KamaConfig) -> None:
             config.rag.query_depth = rag_query_depth_val
         except ValueError:
             raise SystemExit(
-                "Config error: KAMA_RAG_QUERY_DEPTH must be an integer, "
-                f"got: {rag_query_depth!r}"
+                f"Config error: KAMA_RAG_QUERY_DEPTH must be an integer, got: {rag_query_depth!r}"
             )
 
     mem_enabled = os.environ.get("KAMA_MEMORY_ENABLED")
@@ -900,8 +1138,7 @@ def _apply_env(config: KamaConfig) -> None:
             config.memory.dedup_threshold = mem_dedup_val
         except ValueError:
             raise SystemExit(
-                "Config error: KAMA_MEMORY_DEDUP_THRESHOLD must be a number, "
-                f"got: {mem_dedup!r}"
+                f"Config error: KAMA_MEMORY_DEDUP_THRESHOLD must be a number, got: {mem_dedup!r}"
             )
 
     mem_half_life = os.environ.get("KAMA_MEMORY_HALF_LIFE_DAYS")
@@ -916,8 +1153,7 @@ def _apply_env(config: KamaConfig) -> None:
             config.memory.half_life_days = mem_half_life_val
         except ValueError:
             raise SystemExit(
-                "Config error: KAMA_MEMORY_HALF_LIFE_DAYS must be a number, "
-                f"got: {mem_half_life!r}"
+                f"Config error: KAMA_MEMORY_HALF_LIFE_DAYS must be a number, got: {mem_half_life!r}"
             )
 
     mem_max_entries = os.environ.get("KAMA_MEMORY_MAX_ENTRIES")
@@ -935,3 +1171,7 @@ def _apply_env(config: KamaConfig) -> None:
                 "Config error: KAMA_MEMORY_MAX_ENTRIES must be an integer, "
                 f"got: {mem_max_entries!r}"
             )
+
+    skill_enabled = os.environ.get("KAMA_SKILL_ENABLED")
+    if skill_enabled is not None:
+        config.skill.enabled = skill_enabled.lower() not in ("0", "false", "no")

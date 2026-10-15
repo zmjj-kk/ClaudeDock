@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from kama_claude.core.memory.store import MemoryStore
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.tools.base import BaseTool, ToolResult
 
 
@@ -14,9 +15,12 @@ class MemorySearchParams(BaseModel):
 
 
 class MemorySearchTool(BaseTool):
+    capabilities = frozenset({Capability.READ, Capability.NETWORK})
     params_model = MemorySearchParams
     # 只读工具：检索是纯读操作，runtime_error 可安全重试
     retryable_errors = frozenset({"rate_limited", "runtime_error"})
+    risk_level = "read"
+    idempotent = True
     name = "memory_search"
     description = (
         "Semantically search long-term memory for facts relevant to the current task. "
@@ -47,15 +51,32 @@ class MemorySearchTool(BaseTool):
     }
 
     # 绑定 MemoryStore 与默认 top_k
-    def __init__(self, store: MemoryStore, default_top_k: int = 5) -> None:
+    def __init__(
+        self,
+        store: MemoryStore,
+        default_top_k: int = 5,
+        *,
+        project: str | None = None,
+    ) -> None:
         self._store = store
         self._default_top_k = default_top_k
+        self._project = project
 
     # 语义检索并返回带类别与正文的结果列表
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = MemorySearchParams.model_validate(params)
-        top_k = p.top_k or self._default_top_k
-        entries = await self._store.search(p.query, top_k, filter=p.filter)
+        top_k = max(1, min(p.top_k or self._default_top_k, 50))
+        filters = dict(p.filter)
+        if self._project is not None:
+            requested = filters.get("project")
+            if requested is not None and requested not in (self._project, ""):
+                return ToolResult(
+                    "Project scope denied",
+                    is_error=True,
+                    error_type="permission_denied",
+                )
+            filters["project"] = [self._project, ""] if requested is None else requested
+        entries = await self._store.search(p.query, top_k, filter=filters)
         if not entries:
             return ToolResult(content="No relevant memories found.")
         lines = [f"[{i}] ({e.kind}) {e.content}" for i, e in enumerate(entries, 1)]

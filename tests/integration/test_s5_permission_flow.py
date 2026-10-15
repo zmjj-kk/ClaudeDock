@@ -5,10 +5,12 @@ No daemon subprocess needed — uses AgentRunner in-process with a mock LLM
 provider and the real PermissionManager. BashTool runs real subprocesses, so
 commands must be safe (echo, true).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from kama_claude.core.config import KamaConfig
@@ -16,6 +18,14 @@ from kama_claude.core.events.bus import EventBus
 from kama_claude.core.llm.types import LlmResponse, ToolCallBlock
 from kama_claude.core.permissions.manager import PermissionManager
 from kama_claude.core.runner import AgentRunner
+from kama_claude.core.tools.builtin.bash import BashTool
+
+
+# 仅隔离审批流程测试使用非沙箱执行，沙箱边界由独立回归测试验证
+@pytest.fixture(autouse=True)
+def permission_shell_fixture(monkeypatch):
+    monkeypatch.setattr(BashTool, "_argv", lambda self, command, timeout: ["/bin/bash", "-c", command])
+
 
 # ── stub providers ────────────────────────────────────────────────────────────
 
@@ -106,7 +116,7 @@ async def test_permission_allow_once_tool_executes(tmp_path: Path) -> None:
         t = getattr(e, "type", "")
         event_types.append(t)
         if t == "permission.requested":
-            manager.respond(getattr(e, "tool_use_id", ""), "allow_once")
+            manager.respond(getattr(e, "tool_use_id", ""), "allow_once", approval_token=getattr(e, "approval_token", ""))
 
     bus.subscribe(collect)
     outcome = await _runner(_SingleBashProvider(), bus, manager, tmp_path).run_and_capture(
@@ -132,7 +142,7 @@ async def test_permission_deny_once_tool_not_executed(tmp_path: Path) -> None:
         t = getattr(e, "type", "")
         event_types.append(t)
         if t == "permission.requested":
-            manager.respond(getattr(e, "tool_use_id", ""), "deny_once")
+            manager.respond(getattr(e, "tool_use_id", ""), "deny_once", approval_token=getattr(e, "approval_token", ""))
         if t == "tool.call_failed":
             failed_events.append(e)
 
@@ -145,9 +155,8 @@ async def test_permission_deny_once_tool_not_executed(tmp_path: Path) -> None:
     assert getattr(failed_events[0], "error_class", None) == "permission_denied"
 
 
-# 功能：验证 always_allow 决策在 session 内缓存，第二次同名工具不再触发 permission.requested
-# 设计：两步 bash 调用；第一次 respond("always_allow")，断言 permission.requested 只出现一次；
-#       第二次工具调用命中缓存并直接执行，不挂起 Future
+# 功能：验证 always_allow 后不同命令仍触发独立审批
+# 设计：两步不同参数的 bash 调用，确认每一步均发出审批事件，防止权限扩大
 async def test_always_allow_cached_within_session(tmp_path: Path) -> None:
     manager = PermissionManager()
     bus = EventBus()
@@ -157,12 +166,12 @@ async def test_always_allow_cached_within_session(tmp_path: Path) -> None:
         nonlocal perm_requested_count
         if getattr(e, "type", "") == "permission.requested":
             perm_requested_count += 1
-            manager.respond(getattr(e, "tool_use_id", ""), "always_allow")
+            manager.respond(getattr(e, "tool_use_id", ""), "always_allow", approval_token=getattr(e, "approval_token", ""))
 
     bus.subscribe(collect)
     outcome = await _runner(_TwoBashProvider(), bus, manager, tmp_path).run_and_capture(
         "run two bash commands"
     )
 
-    assert perm_requested_count == 1
+    assert perm_requested_count == 2
     assert outcome.status == "success"

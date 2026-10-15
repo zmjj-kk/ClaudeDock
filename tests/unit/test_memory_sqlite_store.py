@@ -77,3 +77,15 @@ def test_all_entries_includes_non_active(tmp_path: Path) -> None:
     store.upsert(MemoryEntry(id="b", content="2", kind="fact", status="expired"))
     assert len(store.all_entries()) == 2
     assert store.count() == 1
+
+
+# 功能：验证 touch_many 批量刷新多条记忆的 last_accessed_at
+# 设计：一次调用更新两个 id，读回断言时间一致，覆盖批量提交路径
+def test_touch_many_updates_all_ids(tmp_path: Path) -> None:
+    store = MemorySqliteStore(tmp_path / "m.db")
+    store.upsert(MemoryEntry(id="a", content="1", kind="fact"))
+    store.upsert(MemoryEntry(id="b", content="2", kind="fact"))
+    ts = "2026-03-01T00:00:00+00:00"
+    store.touch_many(["a", "b"], ts)
+    assert store.get("a").last_accessed_at == ts
+    assert store.get("b").last_accessed_at == ts

@@ -2,7 +2,7 @@
 
 # ---- PEP 517：声明如何构建 wheel/sdist ----
 [build-system]
-requires = ["hatchling"]          # 构建时需要的后端包
+requires = ["hatchling==1.29.0"]          # 构建时需要的后端包
 build-backend = "hatchling.build" # 使用 Hatchling 作为构建后端
 
 # ---- 项目元数据与运行时依赖（PEP 621）----
@@ -11,6 +11,7 @@ name = "KamaClaude"
 version = "0.0.1"
 requires-python = ">=3.12,<3.13" # 仅支持 3.12 小版本范围，与 CI/类型检查一致
 dependencies = [
+    "jsonschema>=4.23",     # 外部工具输入的完整 JSON Schema 校验
     "pydantic>=2.0",       # 数据校验与序列化（含 JSON 模型等）
     "python-dotenv>=1.0",  # .env 文件解析
     "anthropic>=0.25",     # Anthropic LLM SDK（流式 + prompt caching）
@@ -36,6 +37,9 @@ dev = [
     "mypy>=1.10",           # 静态类型检查
     "pytest>=8.0",          # 单元测试
     "pytest-asyncio>=0.23", # 异步测试支持
+    "pytest-cov>=5.0",      # 测试覆盖率报告
+    "bandit>=1.7",          # 安全漏洞扫描
+    "pip-audit>=2.7",       # 依赖漏洞检查
 ]
 eval = [
     "ragas>=0.2,<0.3",                   # RAG 生成层评估（LLM-as-Judge）
@@ -71,6 +75,10 @@ explicit_package_bases = true # 明确包根，减少隐式命名空间误判
 module = "kama_claude.eval.ragas_runner"
 ignore_errors = true  # ragas/langchain 为可选依赖且 API 快速迭代，跳过其边界模块的类型检查
 
+[[tool.mypy.overrides]]
+module = "kama_claude.core.monitoring.otel"
+ignore_errors = true  # opentelemetry 为按需安装的可选依赖，未安装时无类型 stub
+
 # ---- Pytest：默认发现 tests/，异步用例自动管理 event loop ----
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -78,3 +86,37 @@ asyncio_mode = "auto"
 markers = [
     "integration: marks tests that call the real Anthropic API (require ANTHROPIC_API_KEY)",
 ]
+
+# ---- Coverage.py：测试覆盖率配置 ----
+[tool.coverage.run]
+source = ["src/kama_claude"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/eval/*",  # 评估模块为可选依赖
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*", "opentelemetry", "opentelemetry.*"]
+ignore_missing_imports = true  # 动态 Schema 边界由独立回归测试验证
+
+[tool.uv]
+constraint-dependencies = ["anyio>=4.14.2,<5"]  # 依赖审计发现的 TLS/进程池问题修复下限

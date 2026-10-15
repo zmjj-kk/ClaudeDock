@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from kama_claude.eval.rag_metrics import (
+    empty_rate,
     evaluate_retrieval,
     filter_respect_rate,
     hit_at_k,
@@ -47,9 +48,17 @@ def test_evaluate_retrieval() -> None:
     assert evaluate_retrieval([], k=2) == {"hit_at_k": 0.0, "mrr": 0.0, "recall_at_k": 0.0}
 
 
-# 功能：验证 filter_respect_rate 计算 top-K 中命中允许集合的文档占比
-# 设计：部分命中断言 0.5，全命中断言 1.0，空结果/空列表断言合规不越界
+# 功能：验证 filter_respect_rate 计算 top-K 中命中允许集合的文档占比，空结果判 0 而非满分
+# 设计：部分命中断言 0.5、全命中断言 1.0；空结果断言 0.0，使过滤失效导致的"召回为空"
+#       在指标上暴露，而不是被当作"没有越界"掩盖过去
 def test_filter_respect_rate() -> None:
     assert filter_respect_rate(["a", "c"], {"a", "b"}, 2) == 0.5
     assert filter_respect_rate(["a", "b"], {"a", "b"}, 2) == 1.0
-    assert filter_respect_rate([], {"a"}, 2) == 1.0
+    assert filter_respect_rate([], {"a"}, 2) == 0.0
+
+
+# 功能：验证 empty_rate 统计无召回 case 的占比，区分"过滤正确无命中"与"召回整体失效"
+# 设计：四条 case 中两条为空断言 0.5，空输入断言 0.0 避免除零
+def test_empty_rate() -> None:
+    assert empty_rate([["a"], [], ["b"], []]) == 0.5
+    assert empty_rate([]) == 0.0

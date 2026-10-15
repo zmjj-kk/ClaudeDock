@@ -1,0 +1,9 @@
+{
+  "kind": "offline_security_gate_benchmark",
+  "samples": 1000,
+  "median_ms": 0.2174,
+  "p95_ms": 0.3137,
+  "model_requests": 0,
+  "external_effects": 0,
+  "limitations": "Static read gate only; no AI latency, MCP, business backend or sandbox execution measured."
+}

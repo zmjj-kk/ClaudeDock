@@ -1,0 +1,68 @@
+repos:
+  # 通用文件检查
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: 删除行尾空白
+      - id: end-of-file-fixer
+        name: 确保文件以换行符结尾
+      - id: check-yaml
+        name: 检查 YAML 语法
+      - id: check-toml
+        name: 检查 TOML 语法
+      - id: check-json
+        name: 检查 JSON 语法
+      - id: check-added-large-files
+        name: 防止提交大文件
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+        name: 检查合并冲突标记
+      - id: mixed-line-ending
+        name: 统一换行符
+        args: ['--fix=lf']
+
+  # Ruff：快速 Python linter & formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.8
+    hooks:
+      - id: ruff
+        name: Ruff 代码检查
+        args: [--fix]
+      - id: ruff-format
+        name: Ruff 代码格式化
+
+  # Mypy：静态类型检查
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        name: Mypy 类型检查
+        additional_dependencies:
+          - pydantic>=2.0
+          - anthropic>=0.25
+          - textual>=0.75
+          - httpx>=0.28.1
+          - qdrant-client>=1.9
+        args: [--config-file=pyproject.toml]
+        files: ^src/
+
+  # 中文注释格式验证
+  - repo: local
+    hooks:
+      - id: check-chinese-comments
+        name: 验证中文注释格式
+        entry: python scripts/check_comments.py
+        language: system
+        files: \.py$
+        pass_filenames: true
+
+  # 协议文档同步检查
+  - repo: local
+    hooks:
+      - id: protocol-sync
+        name: 检查 WIRE_PROTOCOL.md 同步
+        entry: uv run python scripts/gen_protocol_doc.py --check
+        language: system
+        files: ^src/kama_claude/core/bus/(commands|events|envelope)\.py$
+        pass_filenames: false

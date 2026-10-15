@@ -149,17 +149,16 @@ def test_unknown_tool_default_is_ask() -> None:
 
 # ── non-bash tools ─────────────────────────────────────────────────────────────
 
-# 功能：验证非 bash 工具的 patterns 不参与评估（patterns 仅对 bash 生效）
-# 设计：write_file 有 deny_patterns 字段但工具不是 bash，应走 default (ASK)
-def test_patterns_only_apply_to_bash() -> None:
+# 功能：验证所有工具的硬拒绝模式优先于允许与默认策略
+# 设计：同时配置覆盖全部参数的 allow 和 deny，确保非 Bash 写操作也不能绕过硬拒绝
+def test_deny_patterns_apply_to_all_tools() -> None:
     policy = ToolPolicy(
         default=PermissionDecision.ASK,
         deny_patterns=[r".*"],  # would deny everything if applied
         allow_patterns=[r".*"],
     )
-    # write_file is not bash — patterns should be ignored → falls to default
     result = evaluate("write_file", {"path": "x.txt", "content": "hi"}, policy)
-    assert result == PermissionDecision.ASK
+    assert result == PermissionDecision.DENY
 
 
 # ── param_preview ─────────────────────────────────────────────────────────────

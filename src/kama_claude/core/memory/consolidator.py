@@ -46,14 +46,28 @@ class Consolidator:
     def __init__(self, config: MemoryConfig) -> None:
         self._config = config
 
-    # 调用 LLM 审查记忆并返回整合结果；调用失败或空响应时返回 None 不阻断
+    # 分批调用 LLM 审查全部 active 记忆并合并整合结果；全部批次失败时返回 None 不阻断
     async def consolidate(
         self, provider: object, entries: list[MemoryEntry]
     ) -> ConsolidationResult | None:
         active = [e for e in entries if e.status == "active"]
         if not active:
             return None
-        review = active[:_MAX_REVIEW]
+        combined = ConsolidationResult()
+        any_ok = False
+        for start in range(0, len(active), _MAX_REVIEW):
+            result = await self._review(provider, active[start : start + _MAX_REVIEW])
+            if result is not None:
+                any_ok = True
+                combined.replace.extend(result.replace)
+                combined.retire.extend(result.retire)
+                combined.delete.extend(result.delete)
+        return combined if any_ok else None
+
+    # 审查单批条目：LLM 调用、解析、落库计划翻译；调用失败或不可解析返回 None
+    async def _review(
+        self, provider: object, review: list[MemoryEntry]
+    ) -> ConsolidationResult | None:
         payload = "\n".join(
             json.dumps(e.to_dict(), ensure_ascii=False) for e in review
         )
@@ -97,6 +111,8 @@ class Consolidator:
             if not ids or not content or len(ids) < 2:
                 continue
             src = [by_id[i] for i in ids]
+            if len({entry.project for entry in src}) != 1:
+                continue
             kind = item.get("kind") or src[0].kind
             importance = float(item.get("importance", max(e.importance for e in src)))
             tags_raw = item.get("tags", [])
@@ -106,13 +122,17 @@ class Consolidator:
             merged_ids |= set(ids)
             result.replace.append(
                 MemoryEntry(
-                    id=new_memory_id(content),
+                    id=new_memory_id(content, src[0].project),
                     content=content,
                     kind=kind,
                     project=src[0].project,
                     importance=max(0.0, min(1.0, importance)),
                     tags=tags,
                     created_at=min(e.created_at for e in src),
+                    source="consolidated_derived",
+                    expires_at=min((e.expires_at for e in src if e.expires_at), default=None),
+                    confidence=min(e.confidence for e in src),
+                    policy_tags=["derived"],
                 )
             )
             for i in ids:

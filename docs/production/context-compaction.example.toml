@@ -1,0 +1,33 @@
+# 示例文件，不会被运行时自动加载。复制所需字段到受控测试项目的配置。
+[compaction]
+enabled = false
+preflight_mode = "shadow"
+auto_threshold = 0.0
+# 仅在已核实模型/代理容量后填写；未知模型 enforce 时会拒绝。
+# model_context_window = 200000
+high_watermark = 0.80
+low_watermark = 0.50
+safety_margin_ratio = 0.05
+recent_turns_min = 4
+tool_result_budget_enabled = false
+tool_result_max_bytes = 65536
+tool_round_max_bytes = 131072
+tool_preview_max_chars = 4000
+tool_result_quota_bytes = 67108864
+tool_result_retention_days = 30
+microcompact_enabled = false
+max_consecutive_failures = 3
+reactive_max_retries = 1
+min_steps_between = 3
+min_growth_ratio = 0.10
+
+# P1/P2 独立灰度开关；请完成最终 Linux 回归后在隔离会话逐项启用。
+# 以下字段仍属于上面的 [compaction] 表。
+instruction_sources_enabled = false
+instruction_max_bytes = 32768
+session_memory_enabled = false
+memory_provenance_enabled = false
+memory_injection_token_budget = 4096
+structured_handoff_enabled = false
+prompt_cache_enabled = false
+tool_schema_deferred = false

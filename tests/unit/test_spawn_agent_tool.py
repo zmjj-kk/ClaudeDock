@@ -189,3 +189,113 @@ async def test_foreground_publishes_started_event(tmp_path: Path) -> None:
     assert len(started) == 1
     assert started[0].parent_run_id == "parent-run-01"
     assert started[0].description == "test task"
+
+
+# 功能：角色配置了 model 时，SpawnAgentTool 应通过 provider_factory 派生子 provider
+# 设计：工厂返回带独特文本的 mock，父 provider 文本不同，断言结果来自工厂而非父 provider
+@pytest.mark.asyncio
+async def test_foreground_honors_profile_model(tmp_path: Path) -> None:
+    called: list[str] = []
+
+    def factory(model: str) -> Any:
+        called.append(model)
+        return _make_provider("model-specific-output")
+
+    parent = _make_provider("parent-output")
+    tool = SpawnAgentTool(
+        provider=parent,
+        parent_bus=EventBus(),
+        parent_run_id="parent-run-01",
+        permission_manager=None,
+        max_steps=5,
+        task_registry=BackgroundTaskRegistry(),
+        runs_dir=tmp_path,
+        session_id="sess-test",
+        depth=0,
+        provider_factory=factory,
+    )
+    result = await tool.invoke({
+        "description": "用角色模型",
+        "prompt": "分析",
+        "subagent_type": "planner",
+    })
+    assert not result.is_error
+    assert "model-specific-output" in result.content
+    assert called == ["claude-sonnet-4-6"]
+
+
+# 功能：inherit_tools 应仅注册角色 allowed_tools 里声明的工具
+# 设计：注入两个自定义工具，profile 只允许其中一个，检查子 registry 含与不含
+def test_inherit_tools_respect_role_allowed(tmp_path: Path) -> None:
+    from kama_claude.core.agents.loader import AgentProfile
+    from kama_claude.core.tools.base import BaseTool, ToolResult
+
+    class _FakeTool(BaseTool):
+        name = "fake_rag"
+        description = "fake"
+        input_schema = {"type": "object", "properties": {}}
+
+        async def invoke(self, params: dict[str, object]) -> ToolResult:
+            return ToolResult(content="ok")
+
+    class _OtherTool(_FakeTool):
+        name = "fake_memory"
+
+    tool, _, _ = _make_tool(tmp_path)
+    tool._inherit_tools = [_FakeTool(), _OtherTool()]
+    profile = AgentProfile(
+        name="tester",
+        description="d",
+        system_prompt="s",
+        allowed_tools=["fake_rag"],
+    )
+    registry = tool._build_child_registry(EventBus(), "child-run", profile)
+    assert registry.get("fake_rag") is not None
+    assert registry.get("fake_memory") is None
+
+
+# 功能：后台任务以失败状态结束时，agent_result 应返回错误并携带 status/reason
+# 设计：手动注册一个已完成 task + status="failed" 的 context，断言错误内容含状态与原因
+@pytest.mark.asyncio
+async def test_agent_result_surfaces_failure_status() -> None:
+    from kama_claude.core.context import ExecutionContext
+
+    registry = BackgroundTaskRegistry()
+    context = ExecutionContext(run_id="r1", goal="g", max_steps=1)
+    context.mark_failed("boom")
+
+    async def _done() -> None:
+        return None
+
+    task = asyncio.create_task(_done())
+    await task
+    registry.register("r1", task, context)
+
+    result = await AgentResultTool(registry).invoke({"run_id": "r1"})
+    assert result.is_error
+    assert "failed" in result.content
+    assert "boom" in result.content
+
+
+# 功能：agent_result 读取完成结果后应从注册表移除条目，防止内存泄漏
+# 设计：注册完成的 task，调用 agent_result 后断言 registry.get 返回 None
+@pytest.mark.asyncio
+async def test_agent_result_removes_done_task() -> None:
+    from kama_claude.core.context import ExecutionContext
+
+    registry = BackgroundTaskRegistry()
+    context = ExecutionContext(run_id="r1", goal="g", max_steps=1)
+    context.mark_success()
+    context.result = "ok"
+
+    async def _done() -> None:
+        return None
+
+    task = asyncio.create_task(_done())
+    await task
+    registry.register("r1", task, context)
+
+    result = await AgentResultTool(registry).invoke({"run_id": "r1"})
+    assert not result.is_error
+    assert "ok" in result.content
+    assert registry.get("r1") is None

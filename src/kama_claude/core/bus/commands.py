@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator
+from pydantic import BaseModel, Discriminator, Field
 
 from kama_claude.core.session.model import SessionMode, SessionStatus
 
@@ -29,9 +29,12 @@ class AgentRunResult(BaseModel):
 
 class EventSubscribeCommand(BaseModel):
     type: Literal["event.subscribe"] = "event.subscribe"
-    topics: list[str]          # fnmatch 模式，如 ["step.*", "tool.*"]
-    scope: str = "global"      # "global" | "run:<run_id>"
-    replay_from_run: str | None = None  # 设置则先从 events.jsonl 回放历史再接实时流
+    topics: list[str]  # fnmatch 模式，如 ["step.*", "tool.*"]
+    scope: str = "global"  # "global" | "run:<run_id>"
+    after_sequence: int = Field(default=0, ge=0)
+    replay_from_run: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9_-]{1,80}$"
+    )  # 设置则先从 events.jsonl 回放历史再接实时流
 
 
 class EventSubscribeResult(BaseModel):
@@ -60,6 +63,17 @@ class SessionSendMessageResult(BaseModel):
     run_id: str
 
 
+class SessionGetContextCommand(BaseModel):
+    type: Literal["session.get_context"] = "session.get_context"
+    session_id: str
+
+
+class SessionGetContextResult(BaseModel):
+    notes: str = ""
+    sources: list[dict[str, Any]] = []
+    projection: dict[str, Any] = {}
+
+
 class SessionGetHistoryCommand(BaseModel):
     type: Literal["session.get_history"] = "session.get_history"
     session_id: str
@@ -67,6 +81,23 @@ class SessionGetHistoryCommand(BaseModel):
 
 class SessionGetHistoryResult(BaseModel):
     messages: list[dict[str, Any]]
+
+
+class SessionListCommand(BaseModel):
+    type: Literal["session.list"] = "session.list"
+
+
+class SessionListItem(BaseModel):
+    id: str
+    title: str
+    status: SessionStatus
+    mode: SessionMode
+    created_at: str
+    updated_at: str
+
+
+class SessionListResult(BaseModel):
+    sessions: list[SessionListItem]
 
 
 class SessionCloseCommand(BaseModel):
@@ -79,6 +110,7 @@ class SessionCloseResult(BaseModel):
 
 
 class PermissionRespondCommand(BaseModel):
+    approval_token: str = ""
     type: Literal["permission.respond"] = "permission.respond"
     tool_use_id: str
     # "allow_once" | "always_allow" | "deny_once" | "always_deny"
@@ -98,6 +130,9 @@ class SessionCompactCommand(BaseModel):
 class SessionCompactResult(BaseModel):
     summary_tokens: int
     saved_tokens: int
+    projection_tokens: int | None = None
+    revision: int = 0
+    retained_messages: int = 0
 
 
 class MemoryConsolidateCommand(BaseModel):
@@ -109,6 +144,26 @@ class MemoryConsolidateResult(BaseModel):
     retired: int = 0
 
 
+class RunGetCommand(BaseModel):
+    type: Literal["run.get"] = "run.get"
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+
+
+class RunGetResult(BaseModel):
+    run_id: str
+    state: str
+    reason: str | None = None
+
+
+class RunCancelCommand(BaseModel):
+    type: Literal["run.cancel"] = "run.cancel"
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+
+
+class RunCancelResult(BaseModel):
+    cancelled: bool
+
+
 # 根据 type 字段决定命令类型的判别联合
 Command = Annotated[
     PingCommand
@@ -116,10 +171,14 @@ Command = Annotated[
     | EventSubscribeCommand
     | SessionCreateCommand
     | SessionSendMessageCommand
+    | SessionGetContextCommand
     | SessionGetHistoryCommand
+    | SessionListCommand
     | SessionCloseCommand
     | PermissionRespondCommand
     | SessionCompactCommand
-    | MemoryConsolidateCommand,
+    | MemoryConsolidateCommand
+    | RunGetCommand
+    | RunCancelCommand,
     Discriminator("type"),
 ]

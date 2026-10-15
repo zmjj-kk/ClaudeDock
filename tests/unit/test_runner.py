@@ -251,9 +251,10 @@ async def test_session_history_and_notes_injected(tmp_path: Path) -> None:
 
     await runner.run_and_capture("remember python", run_id="run-new", session=session, store=store)
 
-    assert provider.messages == [{"role": "user", "content": "remember python"}]
+    assert provider.messages[-1] == {"role": "user", "content": "remember python"}
     assert provider.system is not None
-    assert "Python 3.12" in provider.system
+    assert "Python 3.12" not in provider.system
+    assert "Python 3.12" in str(provider.messages)
     assert (store.runs_dir("sess-1") / "run-new" / "events.jsonl").exists()
     assert not (tmp_path / "runs" / "run-new").exists()
 
@@ -309,3 +310,16 @@ async def test_session_registers_note_save_tool(tmp_path: Path) -> None:
     await runner.run_and_capture("remember", run_id="run-1", session=session, store=store)
 
     assert "Use Python 3.12" in store.read_notes("sess-1")
+
+
+# 功能：验证 derive_project 从当前目录向上找到 .git 根目录并取目录名
+# 设计：monkeypatch.chdir 到嵌套子目录，根目录含 .git，断言返回根目录名而非子目录名
+def test_derive_project_uses_git_root(monkeypatch, tmp_path: Path) -> None:
+    from kama_claude.core.runner import derive_project
+
+    root = tmp_path / "myproject"
+    (root / ".git").mkdir(parents=True)
+    sub = root / "src" / "pkg"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+    assert derive_project() == "myproject"

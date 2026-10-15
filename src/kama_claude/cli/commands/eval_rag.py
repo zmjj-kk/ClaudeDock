@@ -12,7 +12,7 @@ from kama_claude.core.llm.provider import AnthropicProvider
 from kama_claude.core.rag.factory import build_store
 from kama_claude.core.rag.store import RagChunk
 from kama_claude.eval.rag_dataset import RagEvalCase, load_dataset
-from kama_claude.eval.rag_metrics import evaluate_retrieval, filter_respect_rate
+from kama_claude.eval.rag_metrics import empty_rate, evaluate_retrieval, filter_respect_rate
 from kama_claude.eval.ragas_runner import generate_answers, ragas_available, run_generation_eval
 
 
@@ -64,6 +64,7 @@ async def _eval_rag(args: argparse.Namespace, config: KamaConfig) -> None:
                     print(
                         f"  [{tag:14s}] Hit@{top_k}={metrics['hit_at_k']:.3f}  "
                         f"MRR={metrics['mrr']:.3f}  Recall@{top_k}={metrics['recall_at_k']:.3f}"
+                        f"  空结果率={metrics['empty_rate']:.3f}"
                         f"  （{n} chunks）"
                     )
                     if args.filter_check:
@@ -123,11 +124,16 @@ async def _retrieval_row(
     )
     n = await store.load_dir(knowledge_dir)
     ranked_rows: list[tuple[list[str], set[str]]] = []
+    empty_rows: list[list[str]] = []
     for case in dataset:
         hits = await store.search(case.query, top_k, filter=case.filter or None)
         ranked = list(dict.fromkeys(c.doc_id for c in hits))
         ranked_rows.append((ranked, set(case.relevant_docs)))
-    return evaluate_retrieval(ranked_rows, top_k), n
+        empty_rows.append(ranked)
+    metrics = evaluate_retrieval(ranked_rows, top_k)
+    # 空结果率随指标一并输出：过滤/召回失效常表现为"返回空"，需与命中率对照观察
+    metrics["empty_rate"] = empty_rate(empty_rows)
+    return metrics, n
 
 
 # 计算带 filter 的 case 的过滤合规率，返回 (平均合规率, 带 filter 的 case 数)

@@ -9,8 +9,8 @@ from kama_claude.core.rag import rerank
 from kama_claude.core.rag.rerank import ZhipuReranker
 
 
-# 功能：验证 ZhipuReranker 把 results 按 index 映射回输入顺序，缺失项补 0.0
-# 设计：MockTransport 返回乱序 results（index 非升序）且缺一条，断言分数与输入顺序对齐、缺失补 0
+# 功能：验证完整且乱序的 rerank 结果按 index 映射回输入顺序
+# 设计：MockTransport 返回完整的乱序结果，断言零分与有效分数均保持输入顺序
 async def test_rerank_maps_results_by_index() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -23,13 +23,16 @@ async def test_rerank_maps_results_by_index() -> None:
             json={
                 "model": "glm-rerank",
                 "results": [
+                    {"index": 1, "relevance_score": 0.0},
                     {"index": 2, "relevance_score": 0.9},
                     {"index": 0, "relevance_score": 0.3},
                 ],
             },
         )
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://test.local"
+    )
     r = ZhipuReranker("k", client=client)
     assert await r.rerank("q", ["a", "b", "c"]) == [0.3, 0.0, 0.9]
 
@@ -44,7 +47,9 @@ async def test_rerank_empty_input() -> None:
         called = True
         return httpx.Response(200, json={"results": []})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://test.local"
+    )
     r = ZhipuReranker("k", client=client)
     assert await r.rerank("q", []) == []
     assert not called
@@ -61,11 +66,11 @@ async def test_rerank_retries_on_connect_error(monkeypatch: pytest.MonkeyPatch) 
         attempts += 1
         if attempts == 1:
             raise httpx.ConnectError("boom", request=request)
-        return httpx.Response(
-            200, json={"results": [{"index": 0, "relevance_score": 0.7}]}
-        )
+        return httpx.Response(200, json={"results": [{"index": 0, "relevance_score": 0.7}]})
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://test.local")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://test.local"
+    )
     r = ZhipuReranker("k", client=client)
     assert await r.rerank("q", ["a"]) == [0.7]
     assert attempts == 2

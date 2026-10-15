@@ -4,7 +4,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.tools.base import BaseTool, ToolResult
+from kama_claude.core.tools.paths import SafePath, resolve_inside, write_inside
 
 _MAX_BYTES = 1 * 1024 * 1024  # 1 MB
 
@@ -16,6 +18,7 @@ class WriteFileParams(BaseModel):
 
 
 class WriteFileTool(BaseTool):
+    capabilities = frozenset({Capability.WRITE})
     params_model = WriteFileParams
     name = "write_file"
     description = (
@@ -39,14 +42,15 @@ class WriteFileTool(BaseTool):
         "required": ["path", "content"],
     }
 
-    # 写入文件内容；超 1MB 拒绝；禁止 .. 路径遍历；自动创建父目录
+    # 可选注入工作根目录（默认进程 cwd），便于测试隔离
+    def __init__(self, root: Path | None = None) -> None:
+        self._root = root
+
+    # 写入文件内容；超 1MB 拒绝；路径解析后越界返回 permission_denied；自动创建父目录
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = WriteFileParams.model_validate(params)
         path_str = p.path
         content = p.content
-
-        if ".." in Path(path_str).parts:
-            raise PermissionError(f"path traversal not allowed: {path_str}")
 
         encoded = content.encode("utf-8")
         if len(encoded) > _MAX_BYTES:
@@ -56,8 +60,15 @@ class WriteFileTool(BaseTool):
                 error_type="runtime_error",
             )
 
-        path = Path(path_str)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        safe: SafePath = resolve_inside(self._root or Path.cwd(), path_str)
+        if safe.path is None:
+            return ToolResult(
+                content=safe.error or "path rejected",
+                is_error=True,
+                error_type="permission_denied",
+            )
+        path = safe.path
+
+        write_inside(self._root or Path.cwd(), path, content)
 
         return ToolResult(content=f"wrote {len(encoded)} bytes to {path_str}")

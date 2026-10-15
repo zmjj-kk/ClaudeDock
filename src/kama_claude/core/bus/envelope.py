@@ -7,12 +7,13 @@ from pydantic import BaseModel, Field
 
 class JsonRpcRequest(BaseModel):
     jsonrpc: Literal["2.0"] = "2.0"
-    id: str
-    method: str
+    id: str = Field(max_length=128)
+    method: str = Field(max_length=128)
     params: dict[str, Any] = Field(default_factory=dict)
 
 
 class EventPushEnvelope(BaseModel):
+    sequence: int = 0
     kind: Literal["event"] = "event"
     event: dict[str, Any]  # Event.model_dump() 的序列化结果
 
@@ -35,11 +36,11 @@ class JsonRpcError(BaseModel):
     error: JsonRpcErrorObject
 
 
-PARSE_ERROR = -32700      # 解析错误
+PARSE_ERROR = -32700  # 解析错误
 INVALID_REQUEST = -32600  # 请求格式错误
-METHOD_NOT_FOUND = -32601 # 方法不存在
-INVALID_PARAMS = -32602   # 参数错误
-INTERNAL_ERROR = -32603   # 服务器内部错误
+METHOD_NOT_FOUND = -32601  # 方法不存在
+INVALID_PARAMS = -32602  # 参数错误
+INTERNAL_ERROR = -32603  # 服务器内部错误
 
 
 class HandlerError(Exception):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from kama_claude.core.config import RagConfig
@@ -25,7 +26,12 @@ def _dense(rag: RagConfig) -> RagIndex:
     if rag.vector_db == "qdrant":
         from kama_claude.core.rag.vector_db import QdrantIndex
 
-        return QdrantIndex(zhipu, url=rag.qdrant_url, path=rag.qdrant_path)
+        namespace = hashlib.sha256(
+            str(Path(rag.knowledge_dir).expanduser().resolve()).encode()
+        ).hexdigest()[:16]
+        return QdrantIndex(
+            zhipu, url=rag.qdrant_url, path=rag.qdrant_path, collection=f"kama_chunks_{namespace}"
+        )
     return zhipu
 
 

@@ -12,11 +12,43 @@ build/
 .pytest_cache/
 .vscode/
 .claude/
-uv.lock
 .idea/
 .DS_Store
 *.log
 workspace/
+
 # RAG 运行时生成的索引缓存
 .rag_index_cache.json
 .rag_index_manifest.json
+
+# 测试覆盖率报告
+.coverage
+coverage.xml
+htmlcov/
+
+# 审计日志（敏感数据）
+audit.log
+
+# 性能监控数据
+*.pprof
+metrics/
+
+# 临时文件
+*.tmp
+*.bak
+*~
+
+# IDE 特定文件
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 生产升级前的私有差异快照
+.kama/upgrade-baseline/
+
+build-assets/wheels/
+build-assets/runtime-requirements.txt
+
+.kama/local-sandbox/

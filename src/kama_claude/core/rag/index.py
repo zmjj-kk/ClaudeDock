@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -63,6 +64,14 @@ def rrf_fuse(
 
 
 class RagIndex(ABC):
+    # 为新构建创建独立状态，网络客户端可共享而索引字段由构建替换
+    def fork(self) -> RagIndex:
+        return copy.copy(self)
+
+    # 回收旧快照的派生存储；共享网络客户端留待最终关闭
+    async def retire(self) -> None:
+        return None
+
     # 基于语料构建索引；ids 为稳定标识，fingerprint 用于缓存校验，metas 为各 chunk 可过滤字段
     @abstractmethod
     async def build(
@@ -74,7 +83,7 @@ class RagIndex(ABC):
     ) -> None: ...
 
     # 检索 top_k 个最相关 chunk，返回 (chunk 下标, 分数) 列表；
-    # allowed 限定候选下标白名单，filter 为键值过滤条件（向量库后端可下推服务端过滤）
+    # allowed 限定候选下标白名单，filter 为键值过滤条件（支持时由后端服务端过滤下推）
     @abstractmethod
     async def search(
         self,
@@ -83,6 +92,10 @@ class RagIndex(ABC):
         allowed: set[int] | None = None,
         filter: dict[str, object] | None = None,
     ) -> list[tuple[int, float]]: ...
+
+    # 关闭底层网络/存储资源；无资源的实现默认空操作
+    async def aclose(self) -> None:
+        return None
 
 
 class Bm25Index(RagIndex):
@@ -175,6 +188,10 @@ class ZhipuEmbeddingIndex(RagIndex):
             headers={"Authorization": f"Bearer {api_key}"},
         )
 
+    # 关闭 httpx 异步客户端，释放连接池
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
     # 构建稠密向量索引：按 chunk 内容 hash 复用缓存，仅对新增/变更 chunk 调用 API
     async def build(
         self,
@@ -240,13 +257,25 @@ class ZhipuEmbeddingIndex(RagIndex):
                 resp.raise_for_status()
                 data = resp.json()
                 items = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
-                return [[float(x) for x in item["embedding"]] for item in items]
+                if len(items) != len(batch) or [item.get("index") for item in items] != list(
+                    range(len(batch))
+                ):
+                    raise ValueError("embedding response count or indices do not match input")
+                vectors = [[float(x) for x in item["embedding"]] for item in items]
+                if any(
+                    len(v) != self._dimensions or not all(math.isfinite(x) for x in v)
+                    for v in vectors
+                ):
+                    raise ValueError("embedding response dimensions or values are invalid")
+                return vectors
             except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
                 if attempt == _MAX_RETRIES:
                     raise
                 log.warning(
                     "embedding request failed (attempt %d/%d): %s",
-                    attempt + 1, _MAX_RETRIES + 1, exc,
+                    attempt + 1,
+                    _MAX_RETRIES + 1,
+                    exc,
                 )
                 await asyncio.sleep(_RETRY_BACKOFF_S[attempt])
         raise RuntimeError("unreachable")  # pragma: no cover
@@ -282,6 +311,13 @@ class ZhipuEmbeddingIndex(RagIndex):
 
 
 class HybridIndex(RagIndex):
+    # 同时复制两个子索引，避免语义构建失败破坏旧词法索引
+    def fork(self) -> RagIndex:
+        snapshot = copy.copy(self)
+        snapshot._lexical = self._lexical.fork()
+        snapshot._dense = self._dense.fork()
+        return snapshot
+
     # 组合词法与语义两个子检索器，用 RRF 按排名融合
     def __init__(
         self,
@@ -295,6 +331,16 @@ class HybridIndex(RagIndex):
         self._dense = dense
         self._rrf_k = rrf_k
         self._depth = depth
+
+    # 回收两个旧子索引的派生快照，不关闭共用客户端
+    async def retire(self) -> None:
+        await self._lexical.retire()
+        await self._dense.retire()
+
+    # 依次关闭词法与语义两个子索引
+    async def aclose(self) -> None:
+        await self._lexical.aclose()
+        await self._dense.aclose()
 
     # 同时构建两个子索引（BM25 重建成本低；embedding 命中已有缓存）
     async def build(

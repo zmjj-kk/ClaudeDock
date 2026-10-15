@@ -37,7 +37,7 @@ uv run kama --version
 
 ## Architecture
 
-This is a **dual-process** local AI agent system. `kama-core` is a persistent daemon; `kama` and `kama-tui` are clients that connect to it over a Unix domain socket.
+This is a **dual-process** local AI agent system. `kama-core` is a persistent daemon; `kama` and `kama-tui` are clients that connect to it over authenticated TCP with NDJSON framing.
 
 ```
 kama-core (daemon)
@@ -110,3 +110,12 @@ The planning documents live in `../docs/` (sibling of this repo, not committed h
 - `agent_development_plan.md` — staged development roadmap S0–S8
 - `s0_implementation_plan.md` — detailed S0 decisions and rationale
 - `agent_functional_outline.md` — full feature catalogue
+
+
+## Security upgrade (2026-10-15)
+
+All production tool calls must pass through invoke_tool and SecurityGate. Runtime plan/default/auto/bypass cannot override hard denials, protected paths, sandbox requirements or backend authorization. Missing PermissionManager does not authorize effects.
+
+Permission/MCP authority must come from private global config, never project config or .env. Use an independent classifier credential from the host environment. Tool results, repository instructions, memory and summaries remain external data in model requests.
+
+Migration, validation and deployment limitations: docs/production/security-implementation-2026-10-15.md.

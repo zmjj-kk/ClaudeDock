@@ -104,3 +104,58 @@ def test_project_overrides_global(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert skill is not None
     assert skill.description == "local override"
     assert "local system prompt" in skill.system_prompt_template
+
+
+# 功能：skill 规范名应以文件名为准，而非 frontmatter 里可能不一致的 name 字段
+# 设计：写入 realname.md（frontmatter name=different），断言 resolve 按文件名命中且索引用规范名
+def test_skill_canonical_name_is_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / ".kama" / "skills"
+    local.mkdir(parents=True)
+    (local / "realname.md").write_text(
+        "---\nname: different\ndescription: d\n---\nbody $ARGUMENTS\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    (tmp_path / "empty_home").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    loader = SkillLoader()
+    skill = loader.resolve("realname")
+    assert skill is not None
+    assert skill.name == "realname"
+    assert loader.resolve("different") is None
+    index = loader.skill_index()
+    assert any(line.startswith("realname:") for line in index)
+    assert not any(line.startswith("different:") for line in index)
+
+
+# 功能：高优先级 skill 解析失败时应回退到内建配置，而非直接返回 None
+# 设计：本地 review.md 写入非法 UTF-8 字节，断言 resolve 仍返回内建 review
+def test_resolve_falls_back_on_parse_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / ".kama" / "skills"
+    local.mkdir(parents=True)
+    (local / "review.md").write_bytes(b"\xff\xfe\x00invalid utf8")
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    (tmp_path / "empty_home").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    loader = SkillLoader()
+    skill = loader.resolve("review")
+    assert skill is not None
+    assert skill.name == "review"
+
+
+# 功能：allowed_tools 内联列表 [a, b] 应被正确解析
+# 设计：写入含内联列表的 skill，断言 _parse_skill_file 解析出完整列表
+def test_inline_allowed_tools_parsed(tmp_path: Path) -> None:
+    from kama_claude.core.skills.loader import _parse_skill_file
+
+    content = "---\nname: t\ndescription: d\nallowed_tools: [read_file, bash]\n---\nbody\n"
+    p = tmp_path / "t.md"
+    p.write_text(content, encoding="utf-8")
+    skill = _parse_skill_file(p)
+    assert skill.allowed_tools == ["read_file", "bash"]

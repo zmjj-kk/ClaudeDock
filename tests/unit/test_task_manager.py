@@ -127,3 +127,38 @@ def test_manager_resumes_id_from_existing_files(tmp_path: Path) -> None:
     mgr2 = TaskManager(tmp_path)
     task = mgr2.create("third")
     assert task.id == 3
+
+
+# 功能：目录中存在无法解析 ID 的异常文件时 list_all 不应崩溃且跳过它们
+# 设计：手动写入 task_abc.json 等非法命名文件，断言 list_all 仅返回合法任务
+def test_list_all_skips_unparsable_files(tmp_path: Path) -> None:
+    mgr = TaskManager(tmp_path)
+    mgr.create("valid")
+    (tmp_path / "task_abc.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "task_notes.json").write_text("{}", encoding="utf-8")
+    tasks = mgr.list_all()
+    assert [t.id for t in tasks] == [1]
+
+
+# 功能：异常命名的 task 文件不应影响 _max_id 与 ID 续接
+# 设计：写入 task_1.json 与非法命名的 task_xyz.json，重新实例化后新建任务 ID 仍为 2
+def test_max_id_ignores_invalid_names(tmp_path: Path) -> None:
+    mgr = TaskManager(tmp_path)
+    mgr.create("first")
+    (tmp_path / "task_xyz.json").write_text("{}", encoding="utf-8")
+    mgr2 = TaskManager(tmp_path)
+    assert mgr2.create("second").id == 2
+
+
+# 功能：blocked_by 含非法类型（非整数）时 _clear_dependency 不应抛异常
+# 设计：手工构造一个 blocked_by 为字符串的任务文件，调用 update completed 验证不崩溃
+def test_clear_dependency_ignores_invalid_blocked_by(tmp_path: Path) -> None:
+    mgr = TaskManager(tmp_path)
+    mgr.create("target")
+    bad = tmp_path / "task_2.json"
+    bad.write_text(
+        '{"id": 2, "subject": "bad", "status": "pending", '
+        '"blocked_by": ["not-an-int", 1], "created_at": "", "updated_at": ""}',
+        encoding="utf-8",
+    )
+    mgr.update(1, status="completed")

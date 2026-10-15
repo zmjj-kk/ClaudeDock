@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -18,8 +18,9 @@ def _now() -> str:
 
 
 # 由正文内容派生稳定 id（mem_ + sha256 前 12 位），用于按内容去重
-def new_memory_id(content: str) -> str:
-    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+def new_memory_id(content: str, project: str = "") -> str:
+    identity = project + "\0" + content if project else content
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return f"mem_{digest[:12]}"
 
 
@@ -35,21 +36,17 @@ class MemoryEntry:
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
     last_accessed_at: str = field(default_factory=_now)
+    source: str = ""
+    source_run_id: str = ""
+    verified_at: str | None = None
+    expires_at: str | None = None
+    confidence: float = 0.5
+    policy_tags: list[str] = field(default_factory=list)
+    schema_version: int = 1
 
     # 将条目序列化为普通 dict，供 sqlite 行与 LLM 输入使用
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "content": self.content,
-            "kind": self.kind,
-            "project": self.project,
-            "importance": self.importance,
-            "tags": list(self.tags),
-            "status": self.status,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "last_accessed_at": self.last_accessed_at,
-        }
+        return asdict(self)
 
     # 从 dict 还原条目，容忍缺字段与类型漂移
     @classmethod
@@ -68,4 +65,11 @@ class MemoryEntry:
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
             last_accessed_at=str(data.get("last_accessed_at", "")),
+            source=str(data.get("source") or ""),
+            source_run_id=str(data.get("source_run_id") or ""),
+            verified_at=data.get("verified_at"),
+            expires_at=data.get("expires_at"),
+            confidence=max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
+            policy_tags=[str(tag) for tag in data.get("policy_tags", [])],
+            schema_version=int(data.get("schema_version", 1)),
         )

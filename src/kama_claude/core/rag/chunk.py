@@ -137,7 +137,62 @@ def split_semantic(text: str, size: int, overlap: int) -> list[str]:
     return _merge_units(units, size, overlap)
 
 
-# 解析 Markdown frontmatter（--- 包着的 key: value 块）；值按标量类型推断，无或格式错返回空
+# 语义切片并保留章节上下文：返回 (chunk 文本, 所属标题)；
+# 命中块自带标题时文本不变，否则前置所属上级标题，使孤立片段可判归属
+def split_with_context(text: str, size: int, overlap: int) -> list[tuple[str, str]]:
+    text = text.strip()
+    if not text:
+        return []
+    # 逐块收集 (单元文本, 生效标题, 是否标题块)，标题块同时刷新生效标题
+    units: list[tuple[str, str, bool]] = []
+    heading = ""
+    for kind, block in _structural_blocks(text):
+        if kind == "heading":
+            heading = block.strip()
+        for unit in _block_units((kind, block), size, overlap):
+            units.append((unit, heading, kind == "heading"))
+    return _merge_with_context(units, size, overlap)
+
+
+# 贪心合并带标题的单元，输出 (chunk 文本, 首单元所属标题)；标题不在块首时才补前缀
+def _merge_with_context(
+    units: list[tuple[str, str, bool]], size: int, overlap: int
+) -> list[tuple[str, str]]:
+    overlap = max(0, min(overlap, size - 1))
+    merged: list[tuple[str, str]] = []
+    current: list[str] = []
+    current_len = 0
+    current_heading = ""
+    for unit, heading, _is_heading in units:
+        unit = unit.strip()
+        if not unit:
+            continue
+        if current and current_len + 1 + len(unit) > size:
+            merged.append(("\n".join(current), current_heading))
+            # 下一块以上一块尾部 overlap 字符作为上下文前缀（计入 size 预算）
+            prefix = merged[-1][0][-overlap:] if overlap > 0 else ""
+            current = [prefix] if prefix else []
+            current_len = len(prefix)
+        if not current:
+            current_heading = heading
+        current.append(unit)
+        current_len += len(unit) + 1
+    if current:
+        merged.append(("\n".join(current), current_heading))
+    return [(_with_heading(body, h), h) for body, h in merged]
+
+
+# 若块首不是所属标题行则前置该标题，返回带上下文的块文本
+def _with_heading(body: str, heading: str) -> str:
+    if not heading:
+        return body
+    first_line = body.split("\n", 1)[0].strip()
+    if first_line == heading:
+        return body
+    return f"{heading}\n{body}"
+
+
+# 解析 Markdown frontmatter（--- 包着的 key: value 块）；值按标量或列表推断，无或格式错返回空
 def parse_frontmatter(text: str) -> dict[str, MetaValue]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -149,8 +204,31 @@ def parse_frontmatter(text: str) -> dict[str, MetaValue]:
             break
         m = _FRONTMATTER_KEY_RE.match(stripped)
         if m:
-            meta[m.group(1)] = _coerce(m.group(2).strip())
+            raw = m.group(2).strip()
+            items = _coerce_list(raw)
+            meta[m.group(1)] = items if items is not None else _coerce(raw)
     return meta
+
+
+# 去掉文档开头的 frontmatter 块，返回正文；无 frontmatter 或未闭合时原样返回
+def strip_frontmatter(text: str) -> str:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[i + 1 :]).strip()
+    return text
+
+
+# 解析 frontmatter 的列表写法（[a, b]）为字符串列表；非列表写法返回 None
+def _coerce_list(raw: str) -> list[str] | None:
+    if not (raw.startswith("[") and raw.endswith("]")):
+        return None
+    inner = raw[1:-1].strip()
+    if not inner:
+        return []
+    return [p.strip().strip("'\"") for p in inner.split(",") if p.strip()]
 
 
 # 把 frontmatter 原始字符串值推断为标量：bool / int / float，否则保持字符串

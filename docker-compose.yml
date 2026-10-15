@@ -1,0 +1,46 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?Set a random QDRANT_API_KEY}
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  kama-core:
+    build: .
+    ports:
+      - "127.0.0.1:7437:7437"
+    volumes:
+      - ./workspace:/app/workspace
+      - kama_state:/home/kama/.kama
+    environment:
+      KAMA_HOST: 0.0.0.0
+      KAMA_PORT: 7437
+      KAMA_ALLOW_REMOTE: "1"
+      KAMA_TRUSTED_PROXY: "1"  # 容器外仅发布 loopback，公网接入必须另外配置 TLS
+      KAMA_IPC_TOKEN: ${KAMA_IPC_TOKEN:?Set a random KAMA_IPC_TOKEN before starting Compose}
+      KAMA_LOG_FORMAT: json
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      KAMA_LLM_DEFAULT_MODEL: ${KAMA_LLM_DEFAULT_MODEL:-claude-sonnet-4-6}
+      KAMA_RAG_QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?Set a random QDRANT_API_KEY}
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-m", "kama_claude.core.transport.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  qdrant_storage:
+  kama_state:

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "execution": "actual registry logic isolated with a stub schema validator",
+  "estimate_method": "utf8_upper_bound",
+  "limitations": [
+    "JSON Schema validator not tested",
+    "no real model choice or quality evaluation",
+    "no real token cost measurement"
+  ],
+  "cases": [
+    {
+      "tools": 10,
+      "full_estimate": 6006,
+      "deferred_estimate": 1214,
+      "exact_name_top1": true,
+      "search_resolve_ms": 0.119
+    },
+    {
+      "tools": 50,
+      "full_estimate": 30046,
+      "deferred_estimate": 1216,
+      "exact_name_top1": true,
+      "search_resolve_ms": 0.115
+    },
+    {
+      "tools": 200,
+      "full_estimate": 120396,
+      "deferred_estimate": 1218,
+      "exact_name_top1": true,
+      "search_resolve_ms": 0.249
+    }
+  ]
+}

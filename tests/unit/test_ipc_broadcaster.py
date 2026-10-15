@@ -5,8 +5,35 @@ import json
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from kama_claude.core.bus.events import RunStartedEvent, StepStartedEvent
 from kama_claude.core.transport.ipc_broadcaster import IpcEventBroadcaster
+
+
+# 每个用例结束后关闭发送任务，验证生命周期并避免跨测试泄漏
+@pytest.fixture(autouse=True)
+async def close_broadcasters(monkeypatch):
+    instances = []
+    original = IpcEventBroadcaster.__init__
+
+    # 记录用例创建的广播器实例
+    def tracked(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        instances.append(self)
+
+    monkeypatch.setattr(IpcEventBroadcaster, "__init__", tracked)
+    yield
+    for instance in instances:
+        await instance.aclose()
+
+
+# 等待已排队事件完成，避免对异步发送采用同步时序断言
+async def _flush(broadcaster):
+    queues = list(broadcaster._queues.values())
+    if queues:
+        await asyncio.wait_for(asyncio.gather(*(q.join() for q in queues)), timeout=1)
+    await asyncio.sleep(0)
 
 
 def _make_writer(*, drain_raises: Exception | None = None) -> asyncio.StreamWriter:
@@ -30,6 +57,7 @@ async def test_subscriber_receives_matching_event() -> None:
     broadcaster.subscribe(writer, topics=["run.*"])
 
     await broadcaster.handle(_run_started())
+    await _flush(broadcaster)
 
     writer.write.assert_called_once()  # type: ignore[attr-defined]
     data = json.loads(writer.write.call_args[0][0].rstrip(b"\n"))  # type: ignore[attr-defined]
@@ -44,6 +72,7 @@ async def test_no_subscription_no_write() -> None:
     writer = _make_writer()
 
     await broadcaster.handle(_run_started())
+    await _flush(broadcaster)
 
     writer.write.assert_not_called()  # type: ignore[attr-defined]
 
@@ -59,7 +88,9 @@ async def test_topic_glob_matches_step_not_run() -> None:
     run_event = _run_started()
 
     await broadcaster.handle(step_event)
+    await _flush(broadcaster)
     await broadcaster.handle(run_event)
+    await _flush(broadcaster)
 
     assert writer.write.call_count == 1  # type: ignore[attr-defined]
     data = json.loads(writer.write.call_args[0][0].rstrip(b"\n"))  # type: ignore[attr-defined]
@@ -74,7 +105,9 @@ async def test_scope_global_receives_all_run_ids() -> None:
     broadcaster.subscribe(writer, topics=["run.*"], scope="global")
 
     await broadcaster.handle(_run_started("r1"))
+    await _flush(broadcaster)
     await broadcaster.handle(_run_started("r2"))
+    await _flush(broadcaster)
 
     assert writer.write.call_count == 2  # type: ignore[attr-defined]
 
@@ -87,7 +120,9 @@ async def test_scope_run_specific_filters_other_run_ids() -> None:
     broadcaster.subscribe(writer, topics=["run.*"], scope="run:abc")
 
     await broadcaster.handle(_run_started("abc"))
+    await _flush(broadcaster)
     await broadcaster.handle(_run_started("xyz"))
+    await _flush(broadcaster)
 
     assert writer.write.call_count == 1  # type: ignore[attr-defined]
 
@@ -101,6 +136,7 @@ async def test_unsubscribe_stops_delivery() -> None:
     broadcaster.unsubscribe(writer)
 
     await broadcaster.handle(_run_started())
+    await _flush(broadcaster)
 
     writer.write.assert_not_called()  # type: ignore[attr-defined]
 
@@ -115,9 +151,11 @@ async def test_dead_connection_removed_after_failure() -> None:
 
     event = _run_started()
     await broadcaster.handle(event)  # drain fails → subscription removed
+    await _flush(broadcaster)
 
     assert writer.write.call_count == 1  # type: ignore[attr-defined]
 
     writer.write.reset_mock()  # type: ignore[attr-defined]
     await broadcaster.handle(event)  # no subscribers remain
+    await _flush(broadcaster)
     writer.write.assert_not_called()  # type: ignore[attr-defined]

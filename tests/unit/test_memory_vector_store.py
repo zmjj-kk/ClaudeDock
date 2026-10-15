@@ -48,6 +48,19 @@ async def test_search_filter_by_kind() -> None:
     assert all(e.kind == "knowledge" for e, _ in results)
 
 
+# 功能：验证 filter 能按 tags 标签（列表元数据）过滤，命中含该标签的条目
+# 设计：两条条目 tags 不同，filter={"tags": "ml"} 应只召回第一条；
+#       列表型元数据此前被 canonical 成整串而恒不命中，此处锁定包含语义
+async def test_search_filter_by_list_metadata() -> None:
+    store = _make_store()
+    await store.build([
+        MemoryEntry(id="e1", content="模型训练使用蒸馏", kind="knowledge", tags=["ml", "nlp"]),
+        MemoryEntry(id="e2", content="模型部署使用容器", kind="knowledge", tags=["ops"]),
+    ])
+    results = await store.search("模型", top_k=5, filter={"tags": "ml"})
+    assert [e.id for e, _ in results] == ["e1"]
+
+
 # 功能：验证 count 只统计 active 条目数
 # 设计：一条 active 一条 expired，断言 count 为 1
 async def test_count_active_only() -> None:
@@ -64,3 +77,25 @@ async def test_count_active_only() -> None:
 async def test_search_empty_query() -> None:
     store = _make_store()
     assert await store.search("", top_k=5) == []
+
+
+# 功能：验证 build 对内容未变的条目复用分块缓存，不重复 split_semantic
+# 设计：monkeypatch split_semantic 计数，同内容二次 build 后调用次数不变
+async def test_build_reuses_cached_chunks(monkeypatch) -> None:
+    import kama_claude.core.memory.vector_store as vs
+
+    calls: list[str] = []
+    orig = vs.split_semantic
+
+    def counting(text: str, size: int, overlap: int) -> list[str]:
+        calls.append(text)
+        return orig(text, size, overlap)
+
+    monkeypatch.setattr(vs, "split_semantic", counting)
+    store = _make_store()
+    entries = [MemoryEntry(id="e1", content="用户偏好使用英文作答", kind="preference")]
+    await store.build(entries)
+    n_after_first = len(calls)
+    await store.build(entries)
+    assert n_after_first == 1
+    assert len(calls) == n_after_first

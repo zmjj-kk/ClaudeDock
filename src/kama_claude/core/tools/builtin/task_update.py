@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.task.manager import TaskManager
 from kama_claude.core.task.model import TaskStatus
 from kama_claude.core.tools.base import BaseTool, ToolResult
 
 
 class TaskUpdateTool(BaseTool):
+    capabilities = frozenset({Capability.WRITE})
     name = "task_update"
     description = (
         "Update a task's status or dependency list. "

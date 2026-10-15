@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate WIRE_PROTOCOL.md from pydantic models in kama_claude.core.bus."""
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +17,10 @@ from kama_claude.core.bus.commands import (
     MemoryConsolidateResult,
     PingCommand,
     PongResult,
+    RunCancelCommand,
+    RunCancelResult,
+    RunGetCommand,
+    RunGetResult,
     SessionCloseCommand,
     SessionCloseResult,
     SessionCreateCommand,
@@ -171,6 +176,12 @@ def generate() -> str:
         "- TCP loopback `127.0.0.1:7437` (override via `KAMA_HOST` / `KAMA_PORT`)\n",
         "- Each message is one `\\n`-terminated JSON line (NDJSON)\n",
         "- Commands use JSON-RPC 2.0 (client → server); Events use `kind=event` envelope (server → client)\n\n",
+        "## Authentication\n\n",
+        "All requests must include `params._auth_token`. Local clients read a user-owned "
+        "0600 token file; remote clients must set `KAMA_IPC_TOKEN`. The token is removed "
+        "before command validation and never included in traces. Unauthorized requests "
+        "return -32001. Non-loopback listeners require explicit remote configuration "
+        "and a TLS proxy or a private network boundary.\n\n",
         "## Commands\n\n",
         "All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params` is used for routing.\n\n",
         _model_section("PingCommand", PingCommand, ping_req_example),
@@ -189,9 +200,13 @@ def generate() -> str:
         "\n",
         _model_section("SessionCreateResult", SessionCreateResult, session_create_resp_example),
         "\n",
-        _model_section("SessionSendMessageCommand", SessionSendMessageCommand, session_send_req_example),
+        _model_section(
+            "SessionSendMessageCommand", SessionSendMessageCommand, session_send_req_example
+        ),
         "\n",
-        _model_section("SessionSendMessageResult", SessionSendMessageResult, session_send_resp_example),
+        _model_section(
+            "SessionSendMessageResult", SessionSendMessageResult, session_send_resp_example
+        ),
         "\n",
         _model_section("SessionGetHistoryCommand", SessionGetHistoryCommand),
         "\n",
@@ -201,9 +216,17 @@ def generate() -> str:
         "\n",
         _model_section("SessionCloseResult", SessionCloseResult),
         "\n",
-        _model_section("MemoryConsolidateCommand", MemoryConsolidateCommand, memory_consolidate_req_example),
+        _model_section(
+            "MemoryConsolidateCommand", MemoryConsolidateCommand, memory_consolidate_req_example
+        ),
         "\n",
-        _model_section("MemoryConsolidateResult", MemoryConsolidateResult, memory_consolidate_resp_example),
+        _model_section(
+            "MemoryConsolidateResult", MemoryConsolidateResult, memory_consolidate_resp_example
+        ),
+        _model_section("RunGetCommand", RunGetCommand),
+        _model_section("RunGetResult", RunGetResult),
+        _model_section("RunCancelCommand", RunCancelCommand),
+        _model_section("RunCancelResult", RunCancelResult),
         "\n## Server Push\n\n",
         "Events pushed from daemon to subscribed clients over the same TCP connection.\n\n",
         _model_section("EventPushEnvelope", EventPushEnvelope, event_push_example),
@@ -212,63 +235,163 @@ def generate() -> str:
         _model_section("CoreStartedEvent", CoreStartedEvent),
         "\n## Run Events\n\n",
         "Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscribed clients.\n\n",
-        _model_section("RunStartedEvent", RunStartedEvent,
-            {"type": "run.started", "run_id": run_id, "goal": "总结 README.md", "ts": ts}),
+        _model_section(
+            "RunStartedEvent",
+            RunStartedEvent,
+            {"type": "run.started", "run_id": run_id, "goal": "总结 README.md", "ts": ts},
+        ),
         "\n",
-        _model_section("RunFinishedEvent", RunFinishedEvent, {
-            "type": "run.finished", "run_id": run_id,
-            "status": "success", "reason": None, "steps": 2, "ts": ts}),
+        _model_section(
+            "RunFinishedEvent",
+            RunFinishedEvent,
+            {
+                "type": "run.finished",
+                "run_id": run_id,
+                "status": "success",
+                "reason": None,
+                "steps": 2,
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("StepStartedEvent", StepStartedEvent,
-            {"type": "step.started", "run_id": run_id, "step": 1, "ts": ts}),
+        _model_section(
+            "StepStartedEvent",
+            StepStartedEvent,
+            {"type": "step.started", "run_id": run_id, "step": 1, "ts": ts},
+        ),
         "\n",
-        _model_section("StepFinishedEvent", StepFinishedEvent,
-            {"type": "step.finished", "run_id": run_id, "step": 1, "ts": ts}),
+        _model_section(
+            "StepFinishedEvent",
+            StepFinishedEvent,
+            {"type": "step.finished", "run_id": run_id, "step": 1, "ts": ts},
+        ),
         "\n",
-        _model_section("ToolCallStartedEvent", ToolCallStartedEvent,
-            {"type": "tool.call_started", "run_id": run_id, "tool_use_id": "toolu_01",
-             "tool_name": "read_file", "params": {"path": "README.md"}, "ts": ts}),
+        _model_section(
+            "ToolCallStartedEvent",
+            ToolCallStartedEvent,
+            {
+                "type": "tool.call_started",
+                "run_id": run_id,
+                "tool_use_id": "toolu_01",
+                "tool_name": "read_file",
+                "params": {"path": "README.md"},
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("ToolCallFinishedEvent", ToolCallFinishedEvent,
-            {"type": "tool.call_finished", "run_id": run_id, "tool_use_id": "toolu_01",
-             "tool_name": "read_file", "elapsed_ms": 3, "ts": ts}),
+        _model_section(
+            "ToolCallFinishedEvent",
+            ToolCallFinishedEvent,
+            {
+                "type": "tool.call_finished",
+                "run_id": run_id,
+                "tool_use_id": "toolu_01",
+                "tool_name": "read_file",
+                "elapsed_ms": 3,
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("ToolCallFailedEvent", ToolCallFailedEvent,
-            {"type": "tool.call_failed", "run_id": run_id, "tool_use_id": "toolu_02",
-             "tool_name": "read_file", "error_class": "runtime_error",
-             "error_message": "file not found", "elapsed_ms": 1, "attempt": 1, "ts": ts}),
+        _model_section(
+            "ToolCallFailedEvent",
+            ToolCallFailedEvent,
+            {
+                "type": "tool.call_failed",
+                "run_id": run_id,
+                "tool_use_id": "toolu_02",
+                "tool_name": "read_file",
+                "error_class": "runtime_error",
+                "error_message": "file not found",
+                "elapsed_ms": 1,
+                "attempt": 1,
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("LlmModelSelectedEvent", LlmModelSelectedEvent,
-            {"type": "llm.model_selected", "run_id": run_id,
-             "model": "claude-sonnet-4-6", "strategy": "static", "ts": ts}),
+        _model_section(
+            "LlmModelSelectedEvent",
+            LlmModelSelectedEvent,
+            {
+                "type": "llm.model_selected",
+                "run_id": run_id,
+                "model": "claude-sonnet-4-6",
+                "strategy": "static",
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("LlmTokenEvent", LlmTokenEvent,
-            {"type": "llm.token", "run_id": run_id, "token": "The ", "ts": ts}),
+        _model_section(
+            "LlmTokenEvent",
+            LlmTokenEvent,
+            {"type": "llm.token", "run_id": run_id, "token": "The ", "ts": ts},
+        ),
         "\n",
-        _model_section("LlmUsageEvent", LlmUsageEvent,
-            {"type": "llm.usage", "run_id": run_id, "input_tokens": 512, "output_tokens": 48,
-             "cache_read_input_tokens": 490, "cache_creation_input_tokens": 0, "ts": ts}),
+        _model_section(
+            "LlmUsageEvent",
+            LlmUsageEvent,
+            {
+                "type": "llm.usage",
+                "run_id": run_id,
+                "input_tokens": 512,
+                "output_tokens": 48,
+                "cache_read_input_tokens": 490,
+                "cache_creation_input_tokens": 0,
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("LogLineEvent", LogLineEvent,
-            {"type": "log.line", "run_id": run_id, "level": "INFO",
-             "source": "kama_claude.core.loop", "message": "step 1 started", "ts": ts}),
+        _model_section(
+            "LogLineEvent",
+            LogLineEvent,
+            {
+                "type": "log.line",
+                "run_id": run_id,
+                "level": "INFO",
+                "source": "kama_claude.core.loop",
+                "message": "step 1 started",
+                "ts": ts,
+            },
+        ),
         "\n## Session Events\n\n",
-        _model_section("SessionCreatedEvent", SessionCreatedEvent,
-            {"type": "session.created", "session_id": session_id, "mode": "chat", "ts": ts}),
+        _model_section(
+            "SessionCreatedEvent",
+            SessionCreatedEvent,
+            {"type": "session.created", "session_id": session_id, "mode": "chat", "ts": ts},
+        ),
         "\n",
-        _model_section("SessionMessageReceivedEvent", SessionMessageReceivedEvent,
-            {"type": "session.message_received", "session_id": session_id,
-             "content": "总结 README.md", "ts": ts}),
+        _model_section(
+            "SessionMessageReceivedEvent",
+            SessionMessageReceivedEvent,
+            {
+                "type": "session.message_received",
+                "session_id": session_id,
+                "content": "总结 README.md",
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("SessionWaitingForInputEvent", SessionWaitingForInputEvent,
-            {"type": "session.waiting_for_input", "session_id": session_id,
-             "last_run_id": run_id, "ts": ts}),
+        _model_section(
+            "SessionWaitingForInputEvent",
+            SessionWaitingForInputEvent,
+            {
+                "type": "session.waiting_for_input",
+                "session_id": session_id,
+                "last_run_id": run_id,
+                "ts": ts,
+            },
+        ),
         "\n",
-        _model_section("SessionResumedEvent", SessionResumedEvent,
-            {"type": "session.resumed", "session_id": session_id, "ts": ts}),
+        _model_section(
+            "SessionResumedEvent",
+            SessionResumedEvent,
+            {"type": "session.resumed", "session_id": session_id, "ts": ts},
+        ),
         "\n",
-        _model_section("SessionClosedEvent", SessionClosedEvent,
-            {"type": "session.closed", "session_id": session_id, "ts": ts}),
+        _model_section(
+            "SessionClosedEvent",
+            SessionClosedEvent,
+            {"type": "session.closed", "session_id": session_id, "ts": ts},
+        ),
         "\n## Error Codes\n\n",
         "| Code | Name | Meaning |\n",
         "|------|------|---------|\n",
@@ -279,7 +402,20 @@ def generate() -> str:
         "| -32603 | Internal Error | Handler raised an unhandled exception |\n",
         "| -32000 | Application Error | e.g. another run already in progress |\n",
     ]
-    return "".join(sections)
+    content = "".join(sections)
+    from kama_claude.core.bus import commands, events
+
+    extra = []
+    for module in (commands, events):
+        for name, model in sorted(vars(module).items()):
+            if (
+                isinstance(model, type) and model.__module__ == module.__name__
+                and hasattr(model, "model_json_schema") and f"### {name}\n" not in content
+            ):
+                extra.append(_model_section(name, model))
+    if extra:
+        content += "\n## Additional Typed Commands, Results and Events\n\n" + "\n".join(extra)
+    return content
 
 
 # 解析命令行参数，写出或校验 WIRE_PROTOCOL.md

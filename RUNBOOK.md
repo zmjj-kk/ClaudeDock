@@ -93,3 +93,7 @@ tail -f ~/.kama/logs/core.log
 | `core not running` | 未启动守护进程 | `uv run kama-core` |
 | `Address already in use` | 端口被其他进程占用 | `KAMA_PORT=8000 uv run kama-core` |
 | `Config error: KAMA_PORT must be an integer` | `.env` 或环境变量中端口值非整数 | 检查 `KAMA_PORT` 的值 |
+
+## 生产升级运维
+
+2026-10-14 的认证、预算、容器与恢复流程见 [生产运维手册](docs/production/operations.md)。

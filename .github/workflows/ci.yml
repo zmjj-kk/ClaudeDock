@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [main, stage/*, codex/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.13.1"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run ruff check
+        run: uv run ruff check src tests scripts
+
+      - name: Run mypy
+        run: uv run mypy src
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.13.1"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run unit tests with coverage
+        run: uv run pytest tests/unit -v --cov=src/kama_claude --cov-report=xml --cov-report=html --cov-report=term --cov-fail-under=65
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.13.1"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run integration tests (no API key)
+        run: uv run pytest tests/integration -v -m "not integration"
+
+      - name: Run integration tests (with API key)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run pytest tests/integration -v
+
+  protocol-check:
+    name: Protocol Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.13.1"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Verify WIRE_PROTOCOL.md is in sync
+        run: uv run python scripts/gen_protocol_doc.py --check
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.13.1"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run pip-audit
+        run: |
+          uv export --frozen --no-dev --no-emit-project --output-file runtime-requirements.txt
+          uv run pip-audit -r runtime-requirements.txt --disable-pip --require-hashes --desc
+
+      - name: Run bandit security linter
+        run: uv run bandit -r src/ -ll
+
+  container:
+    name: Container Build and Authenticated Probe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t kama-ci .
+      - name: Start without external model calls and verify NDJSON probe
+        run: |
+          docker run -d --name kama-ci kama-ci
+          trap 'docker logs kama-ci; docker rm -f kama-ci' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec kama-ci python -m kama_claude.core.transport.healthcheck; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Fail on high or critical image vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.75.0
+          image-ref: kama-ci
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: false
+      - name: Export image SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.75.0
+          image-ref: kama-ci
+          format: cyclonedx
+          output: kama-image-sbom.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-sbom
+          path: kama-image-sbom.json

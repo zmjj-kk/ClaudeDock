@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 from kama_claude.core.config import MemoryConfig
 from kama_claude.core.llm.types import LlmResponse, UsageStats
-from kama_claude.core.memory.consolidator import Consolidator, _parse_plan
+from kama_claude.core.memory.consolidator import _MAX_REVIEW, Consolidator, _parse_plan
 from kama_claude.core.memory.model import MemoryEntry
 
 
@@ -99,3 +100,24 @@ async def test_consolidate_provider_failure_returns_none() -> None:
     c = Consolidator(MemoryConfig())
     result = await c.consolidate(provider, _entries())
     assert result is None
+
+
+# 功能：验证 consolidate 分批审查全部 active 条目，超过 _MAX_REVIEW 的条目也能被退休
+# 设计：构造 _MAX_REVIEW+1 条记忆，retire 目标放在最后一批，断言 retire 生效且 provider 被调用两次
+async def test_consolidate_reviews_entries_beyond_first_batch() -> None:
+    entries = [
+        MemoryEntry(id=f"e{i:04d}", content=f"记忆 {i}", kind="fact")
+        for i in range(_MAX_REVIEW + 1)
+    ]
+    target = entries[-1].id
+    provider = MagicMock()
+    provider.chat = AsyncMock(return_value=LlmResponse(
+        stop_reason="end_turn",
+        text=json.dumps({"merge": [], "retire": [{"id": target, "status": "superseded"}]}),
+        usage=UsageStats(input_tokens=10, output_tokens=10),
+    ))
+    c = Consolidator(MemoryConfig())
+    result = await c.consolidate(provider, entries)
+    assert result is not None
+    assert result.retire == [(target, "superseded")]
+    assert provider.chat.await_count == 2

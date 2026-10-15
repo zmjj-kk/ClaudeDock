@@ -11,6 +11,7 @@ from kama_claude.core.llm.types import LlmResponse, ToolCallBlock
 from kama_claude.core.loop import AgentLoop
 from kama_claude.core.tools.base import BaseTool, ToolResult
 from kama_claude.core.tools.registry import ToolRegistry
+from tests.security_helpers import approving_manager
 
 # --- stubs -------------------------------------------------------------------
 
@@ -80,7 +81,7 @@ def _make_loop(
     bus: EventBus | None = None,
 ) -> tuple[AgentLoop, EventBus]:
     b = bus or EventBus()
-    return AgentLoop(provider, registry or ToolRegistry(), b), b  # type: ignore[arg-type]
+    return AgentLoop(provider, registry or ToolRegistry(), b, permission_manager=approving_manager(b)), b  # type: ignore[arg-type]
 
 
 async def _events(bus: EventBus) -> list[BaseModel]:

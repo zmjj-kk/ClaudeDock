@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "estimate_method": "utf8_upper_bound",
+  "fixture_sha256": "d9bc807ba693a36d65a6d830664ae4b46cc39898832676d5863553b90ead04c5",
+  "api_calls": 0,
+  "cases": [
+    {
+      "id": "editing-1",
+      "turns": 10,
+      "pruned_results": 6,
+      "pre_estimate": 123997,
+      "post_estimate": 52189,
+      "elapsed_ms": 0.281
+    },
+    {
+      "id": "editing-2",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371977,
+      "post_estimate": 60809,
+      "elapsed_ms": 0.601
+    },
+    {
+      "id": "editing-3",
+      "turns": 100,
+      "pruned_results": 96,
+      "pre_estimate": 1239907,
+      "post_estimate": 90979,
+      "elapsed_ms": 1.985
+    },
+    {
+      "id": "editing-4",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371977,
+      "post_estimate": 60809,
+      "elapsed_ms": 0.668
+    },
+    {
+      "id": "constraints-1",
+      "turns": 10,
+      "pruned_results": 6,
+      "pre_estimate": 123991,
+      "post_estimate": 52183,
+      "elapsed_ms": 0.243
+    },
+    {
+      "id": "constraints-2",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371971,
+      "post_estimate": 60803,
+      "elapsed_ms": 0.577
+    },
+    {
+      "id": "constraints-3",
+      "turns": 100,
+      "pruned_results": 96,
+      "pre_estimate": 1239901,
+      "post_estimate": 90973,
+      "elapsed_ms": 2.014
+    },
+    {
+      "id": "constraints-4",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371971,
+      "post_estimate": 60803,
+      "elapsed_ms": 0.679
+    },
+    {
+      "id": "noise-1",
+      "turns": 10,
+      "pruned_results": 6,
+      "pre_estimate": 123997,
+      "post_estimate": 52189,
+      "elapsed_ms": 0.23
+    },
+    {
+      "id": "noise-2",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371977,
+      "post_estimate": 60809,
+      "elapsed_ms": 0.578
+    },
+    {
+      "id": "noise-3",
+      "turns": 100,
+      "pruned_results": 96,
+      "pre_estimate": 1239907,
+      "post_estimate": 90979,
+      "elapsed_ms": 2.059
+    },
+    {
+      "id": "noise-4",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371977,
+      "post_estimate": 60809,
+      "elapsed_ms": 0.605
+    },
+    {
+      "id": "recovery-1",
+      "turns": 10,
+      "pruned_results": 6,
+      "pre_estimate": 123994,
+      "post_estimate": 52186,
+      "elapsed_ms": 0.21
+    },
+    {
+      "id": "recovery-2",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371974,
+      "post_estimate": 60806,
+      "elapsed_ms": 0.572
+    },
+    {
+      "id": "recovery-3",
+      "turns": 100,
+      "pruned_results": 96,
+      "pre_estimate": 1239904,
+      "post_estimate": 90976,
+      "elapsed_ms": 1.939
+    },
+    {
+      "id": "recovery-4",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 371974,
+      "post_estimate": 60806,
+      "elapsed_ms": 0.651
+    },
+    {
+      "id": "injection-1",
+      "turns": 10,
+      "pruned_results": 6,
+      "pre_estimate": 124144,
+      "post_estimate": 52246,
+      "elapsed_ms": 0.23
+    },
+    {
+      "id": "injection-2",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 372424,
+      "post_estimate": 60866,
+      "elapsed_ms": 0.589
+    },
+    {
+      "id": "injection-3",
+      "turns": 100,
+      "pruned_results": 96,
+      "pre_estimate": 1241404,
+      "post_estimate": 91036,
+      "elapsed_ms": 2.005
+    },
+    {
+      "id": "injection-4",
+      "turns": 30,
+      "pruned_results": 26,
+      "pre_estimate": 372424,
+      "post_estimate": 60866,
+      "elapsed_ms": 0.633
+    }
+  ],
+  "limitations": "Synthetic references; not a storage, LLM quality or cost benchmark"
+}

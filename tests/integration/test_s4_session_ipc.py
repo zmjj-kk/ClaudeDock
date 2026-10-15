@@ -4,6 +4,8 @@ import asyncio
 import json
 import subprocess
 
+from kama_claude.core.transport.auth import read_token
+
 
 # 发送一条 JSON-RPC 请求并返回响应对象
 async def _send_recv(
@@ -13,7 +15,12 @@ async def _send_recv(
     params: dict,
     req_id: str = "1",
 ) -> dict:
-    req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    req = {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "method": method,
+        "params": {**params, "_auth_token": read_token(writer.get_extra_info("peername")[1])},
+    }
     writer.write((json.dumps(req) + "\n").encode())
     await writer.drain()
     line = await asyncio.wait_for(reader.readline(), timeout=5.0)

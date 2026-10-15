@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.task.manager import TaskManager
 from kama_claude.core.tools.base import BaseTool, ToolResult
 
 
 class TaskListTool(BaseTool):
+    capabilities = frozenset({Capability.READ})
     name = "task_list"
     description = (
         "List all tasks with their current status and blocking dependencies. "

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from kama_claude.core.tools.base import BaseTool, ToolResult
 from kama_claude.core.tools.registry import ToolRegistry
 
@@ -58,8 +60,8 @@ def test_multiple_tools_all_appear_in_schemas() -> None:
     assert names == {"fake", "another"}
 
 
-# 功能：验证重复注册同名工具时新版本覆盖旧版本（覆盖语义而非追加）
-# 设计：检查 description 变更，确认 registry 的覆盖语义，防止工具版本冲突导致旧实现残留
+# 功能：验证同名工具注册被拒绝且保留原有实现
+# 设计：模拟外部工具覆盖内置名称，检查异常并确认原实现仍在
 def test_register_same_name_overwrites() -> None:
     class _Updated(BaseTool):
         name = "fake"
@@ -71,7 +73,8 @@ def test_register_same_name_overwrites() -> None:
 
     registry = ToolRegistry()
     registry.register(_FakeTool())
-    registry.register(_Updated())
+    with pytest.raises(ValueError, match="duplicate"):
+        registry.register(_Updated())
     found = registry.get("fake")
     assert found is not None
-    assert found.description == "updated"
+    assert found.description == "A fake tool"

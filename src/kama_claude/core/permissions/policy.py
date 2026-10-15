@@ -14,11 +14,11 @@ class PermissionDecision(StrEnum):
 
 # 检测 bash 命令是否操作 cwd 之外路径的正则规则列表（强制触发 ASK，不可被 allow_patterns 绕过）
 OUTSIDE_CWD_HEURISTICS: list[str] = [
-    r"(^|\s)/[^\s]",              # absolute path
-    r"(^|\s)~",                   # tilde home
-    r"(^|\s)\.\.(/|$|\s)",        # parent traversal
-    r"\$\{?HOME\b",               # $HOME variable
-    r"\$\{?PWD\b",                # $PWD variable
+    r"(^|\s)/[^\s]",  # absolute path
+    r"(^|\s)~",  # tilde home
+    r"(^|\s)\.\.(/|$|\s)",  # parent traversal
+    r"\$\{?HOME\b",  # $HOME variable
+    r"\$\{?PWD\b",  # $PWD variable
     r"(^|\s|;|&&|\|\|)cd(\s|$)",  # explicit cd
 ]
 
@@ -38,12 +38,14 @@ class ToolPolicy:
 
 
 DEFAULT_POLICIES: dict[str, ToolPolicy] = {
-    "bash":       ToolPolicy(default=PermissionDecision.ASK),
+    "bash": ToolPolicy(default=PermissionDecision.ASK),
     "write_file": ToolPolicy(default=PermissionDecision.ASK),
-    "read_file":  ToolPolicy(default=PermissionDecision.ALLOW),
-    "list_dir":   ToolPolicy(default=PermissionDecision.ALLOW),
-    "note_save":  ToolPolicy(default=PermissionDecision.ALLOW),
+    "read_file": ToolPolicy(default=PermissionDecision.ALLOW),
+    "list_dir": ToolPolicy(default=PermissionDecision.ALLOW),
+    "note_save": ToolPolicy(default=PermissionDecision.ALLOW),
     "rag_search": ToolPolicy(default=PermissionDecision.ALLOW),
+    "tool_search": ToolPolicy(default=PermissionDecision.ALLOW),
+    "read_tool_result": ToolPolicy(default=PermissionDecision.ALLOW),
 }
 
 # 未在 DEFAULT_POLICIES 中登记的工具的兜底策略
@@ -51,11 +53,11 @@ _UNKNOWN_TOOL_DEFAULT = PermissionDecision.ASK
 
 # bash 参数中展示用的关键字段映射
 _PREVIEW_KEY: dict[str, str] = {
-    "bash":       "command",
-    "read_file":  "path",
+    "bash": "command",
+    "read_file": "path",
     "write_file": "path",
-    "list_dir":   "path",
-    "note_save":  "content",
+    "list_dir": "path",
+    "note_save": "content",
     "rag_search": "query",
 }
 _PREVIEW_MAX = 60
@@ -87,11 +89,13 @@ def evaluate(
 
     command = str(params.get("command", "")) if tool_name == "bash" else ""
 
-    # Tier 1: deny_patterns (bash only)
-    if command:
-        for pat in policy.deny_patterns:
-            if re.search(pat, command):
-                return PermissionDecision.DENY
+    # 所有工具的硬拒绝都先于模式、缓存和批准，非 shell 使用规范 JSON 参数
+    import json
+
+    target = command or json.dumps(params, sort_keys=True, ensure_ascii=False)
+    for pat in policy.deny_patterns:
+        if re.search(pat, target):
+            return PermissionDecision.DENY
 
     # Tier 2: OUTSIDE_CWD_HEURISTICS — forced ASK, not bypassable
     if command and matches_outside_cwd(command):

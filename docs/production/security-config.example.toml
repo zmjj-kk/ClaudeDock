@@ -1,0 +1,28 @@
+# 安装到 ~/.kama/config.toml；不要放入项目 .kama/config.toml。
+# 项目配置与 .env 不能授予安全权限或重定向 KAMA_CONFIG。
+[permission]
+mode = "default"                   # plan | default | auto | bypass
+timeout_s = 60.0
+bypass_enabled = false             # 受信管理员选项，默认关闭
+classifier_enabled = false         # 先离线验证，再小流量启用
+classifier_model = ""              # 填入独立审查模型标识
+classifier_timeout_s = 10.0
+classifier_max_calls = 100
+
+# 审查凭据只能在启动 daemon 前由宿主环境导出：
+# export KAMA_SECURITY_CLASSIFIER_API_KEY=...
+# export KAMA_PERMISSION_MODE=auto
+# 缺模型、凭据或开关时 auto 回退人工确认，永不静默放行。
+# Stage1=128 tokens，Stage2=4096 tokens；并发2，失败3次熔断60秒。
+#
+# MCP 必须显式授予工具能力，服务端描述与 readOnlyHint 均不授予权限。
+# 示例仅演示 loopback 注册，不能用它替代业务鉴权：
+# [[mcp.servers]]
+# name = "reviewed-local-service"
+# transport = "tcp"
+# host = "127.0.0.1"
+# port = 3000
+# [mcp.servers.tool_capabilities]
+# inspect = ["read"]
+# 所有 MCP 执行仍需逐次审批。URL/身份覆盖/越界路径/大批次被拒绝。
+# external_effect 能力直接拒绝，直到接入并验收真实可信业务后端。

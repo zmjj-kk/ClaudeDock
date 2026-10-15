@@ -32,9 +32,19 @@ def evaluate_retrieval(rows: list[tuple[list[str], set[str]]], k: int) -> dict[s
     return {"hit_at_k": hit, "mrr": mrr_sum, "recall_at_k": rec}
 
 
-# 计算过滤合规率：top-K 结果中命中"允许集合"的文档占比，衡量过滤是否真正收窄候选集
+# 计算过滤合规率：top-K 结果中命中"允许集合"的文档占比，衡量过滤是否真正收窄候选集；
+# 空结果判 0：过滤失效（如列表元数据匹配不到）常以"返回空"暴露，计满分会让指标掩盖故障
 def filter_respect_rate(ranked_docs: list[str], allowed: set[str], k: int) -> float:
-    if k <= 0 or not ranked_docs:
-        return 1.0  # 无结果视为合规（空结果不越界）
+    if k <= 0:
+        return 1.0
+    if not ranked_docs:
+        return 0.0
     top = ranked_docs[:k]
     return len([d for d in top if d in allowed]) / len(top)
+
+
+# 计算空结果率：无任何召回的 case 占比，用于区分"过滤正确但无命中"与"召回本身失效"
+def empty_rate(ranked_rows: list[list[str]]) -> float:
+    if not ranked_rows:
+        return 0.0
+    return sum(1 for ranked in ranked_rows if not ranked) / len(ranked_rows)

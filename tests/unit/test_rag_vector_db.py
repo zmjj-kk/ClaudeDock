@@ -100,3 +100,29 @@ async def test_qdrant_index_metadata_filter_range(tmp_path: Path) -> None:
         "machine learning", top_k=2, filter={"year": {"gte": 2025}}
     )
     assert scores == [(1, 1.0)]
+
+
+# 功能：验证字符串范围（updated_at 这类 YYYY-MM）不再抛 ValidationError，而是回落本地筛选
+# 设计：Qdrant 的 Range 只接受数值，此条件必须走 _split_filter 的本地分支；
+#       断言不抛异常且结果与内存语义一致（"2026-03" 命中、"2025-11" 被排除）
+async def test_qdrant_index_string_range_falls_back(tmp_path: Path) -> None:
+    index = QdrantIndex(_fake_embed(), path=str(tmp_path / "qdrant"))
+    texts = ["machine learning notes", "machine learning notes"]
+    metas = [{"updated_at": "2026-03"}, {"updated_at": "2025-11"}]
+    await index.build(texts, ["a::0", "b::0"], "fp", metas)
+    scores = await index.search(
+        "machine learning", top_k=2, filter={"updated_at": {"gte": "2026-01"}}
+    )
+    assert scores == [(0, 1.0)]
+
+
+# 功能：验证列表型元数据（tags）按包含语义过滤，且不会误用 Qdrant 的 MatchValue
+# 设计：payload 中 tags 是数组，filter 传单个标签应命中含该标签的点；
+#       断言只有 tags 含 "ml" 的点返回，覆盖内存与向量库两侧语义对齐
+async def test_qdrant_index_list_metadata_filter(tmp_path: Path) -> None:
+    index = QdrantIndex(_fake_embed(), path=str(tmp_path / "qdrant"))
+    texts = ["machine learning notes", "machine learning notes"]
+    metas = [{"tags": ["ml", "nlp"]}, {"tags": ["ops"]}]
+    await index.build(texts, ["a::0", "b::0"], "fp", metas)
+    scores = await index.search("machine learning", top_k=2, filter={"tags": "ml"})
+    assert scores == [(0, 1.0)]

@@ -11,13 +11,32 @@ from kama_claude.core.events.bus import EventBus
 from kama_claude.core.llm.types import LlmResponse, UsageStats
 
 
-def _stub_provider(summary: str = "## 1. Original Goal\nTest\n## 2. Completed Steps\n- done") -> Any:
+def _stub_provider(
+    summary: str = "## 1. Original Goal\nTest\n## 2. Completed Steps\n- done",
+) -> Any:
+    if summary:
+        for i, title in enumerate(
+            (
+                "Original Goal",
+                "Completed Steps",
+                "Key Constraints & Discoveries",
+                "Current File State",
+                "Remaining TODOs",
+                "Critical Data",
+            ),
+            1,
+        ):
+            heading = f"## {i}. {title}"
+            if heading not in summary:
+                summary += "\n" + heading + "\nNone"
     provider = MagicMock()
-    provider.chat = AsyncMock(return_value=LlmResponse(
-        stop_reason="end_turn",
-        text=summary,
-        usage=UsageStats(input_tokens=100, output_tokens=30),
-    ))
+    provider.chat = AsyncMock(
+        return_value=LlmResponse(
+            stop_reason="end_turn",
+            text=summary,
+            usage=UsageStats(input_tokens=100, output_tokens=30),
+        )
+    )
     return provider
 
 
@@ -37,9 +56,7 @@ def test_compact_messages_calls_provider(tmp_path: Path) -> None:
     compactor = Compactor(bus, tmp_path, "sess-1")
     messages = _make_messages()
 
-    result = asyncio.run(
-        compactor.compact_messages(messages, provider)
-    )
+    result = asyncio.run(compactor.compact_messages(messages, provider))
 
     assert result is not None
     provider.chat.assert_called_once()
@@ -50,17 +67,15 @@ def test_compact_messages_calls_provider(tmp_path: Path) -> None:
 # 功能：验证 compact_messages 返回的摘要文本来自 provider 响应
 # 设计：stub provider 返回固定摘要字符串，断言 result.summary_text 等于该字符串
 def test_compact_messages_returns_summary(tmp_path: Path) -> None:
-    expected = "## 1. Original Goal\nDo X\n## 2. Completed\n- step one"
+    expected = "## 1. Original Goal\nDo X\n## 2. Completed Steps\n- step one"
     provider = _stub_provider(summary=expected)
     bus = EventBus()
     compactor = Compactor(bus, tmp_path, "sess-1")
 
-    result = asyncio.run(
-        compactor.compact_messages(_make_messages(), provider)
-    )
+    result = asyncio.run(compactor.compact_messages(_make_messages(), provider))
 
     assert result is not None
-    assert result.summary_text == expected
+    assert result.summary_text.startswith(expected)
 
 
 # 功能：验证 compact() 将 context.messages 替换为两条摘要消息对

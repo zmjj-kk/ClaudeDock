@@ -12,6 +12,7 @@ class CoreStartedEvent(BaseModel):
 
 
 class RunStartedEvent(BaseModel):
+    session_id: str | None = None
     type: Literal["run.started"] = "run.started"
     run_id: str
     goal: str
@@ -81,6 +82,7 @@ class LlmTokenEvent(BaseModel):
 
 
 class LlmUsageEvent(BaseModel):
+    context_window: int | None = None
     type: Literal["llm.usage"] = "llm.usage"
     run_id: str
     input_tokens: int
@@ -141,8 +143,88 @@ class SessionClosedEvent(BaseModel):
     ts: str
 
 
+class ContextSourcesLoadedEvent(BaseModel):
+    type: Literal["context.sources_loaded"] = "context.sources_loaded"
+    session_id: str = ""
+    run_id: str
+    sources: list[dict[str, Any]]
+    diagnostics: list[str]
+    ts: str
+
+
+class ContextMemoryUpdatedEvent(BaseModel):
+    type: Literal["context.memory_updated"] = "context.memory_updated"
+    session_id: str
+    run_id: str
+    revision: int
+    source_count: int
+    ts: str
+
+
+class ContextCacheUsageEvent(BaseModel):
+    type: Literal["context.cache_usage"] = "context.cache_usage"
+    session_id: str = ""
+    run_id: str
+    stable_prefix_hash: str
+    cache_read: int
+    cache_create: int
+    ts: str
+
+
+class ContextBudgetCheckedEvent(BaseModel):
+    type: Literal["context.budget_checked"] = "context.budget_checked"
+    run_id: str
+    session_id: str = ""
+    window: int | None
+    input_tokens: int
+    reserved_output: int
+    safety_margin: int
+    system_tokens: int
+    tools_tokens: int
+    history_tokens: int
+    over_limit: bool
+    mode: str
+    estimate_method: str
+    ts: str
+
+
+class ContextPrunedEvent(BaseModel):
+    type: Literal["context.pruned"] = "context.pruned"
+    run_id: str
+    count: int
+    saved_tokens: int
+    ts: str
+
+
+class ContextCompactionStartedEvent(BaseModel):
+    type: Literal["context.compaction_started"] = "context.compaction_started"
+    run_id: str
+    session_id: str
+    revision: int
+    pre_tokens: int
+    strategy: str = "rolling"
+    target_low_watermark: float = 0.5
+    ts: str
+
+
+class ContextCompactionFailedEvent(BaseModel):
+    type: Literal["context.compaction_failed"] = "context.compaction_failed"
+    session_id: str = ""
+    run_id: str
+    consecutive_failures: int
+    circuit_open: bool
+    reason: str
+    elapsed_ms: int = 0
+    ts: str
+
+
 class ContextCompactedEvent(BaseModel):
     type: Literal["context.compacted"] = "context.compacted"
+    revision: int = 0
+    retained_messages: int = 0
+    projection_tokens: int | None = None
+    estimate_method: str = "utf8_upper_bound"
+    elapsed_ms: int = 0
     session_id: str
     run_id: str
     original_tokens: int
@@ -150,7 +232,26 @@ class ContextCompactedEvent(BaseModel):
     ts: str
 
 
+class SecurityDecisionEvent(BaseModel):
+    type: Literal["security.decision"] = "security.decision"
+    run_id: str
+    session_id: str
+    tool_use_id: str
+    operation_id: str
+    principal_id: str
+    server_id: str
+    argument_hash: str
+    policy_revision: str
+    action: str
+    reason_code: str
+    elapsed_ms: int = 0
+    ts: str
+
+
 class PermissionRequestedEvent(BaseModel):
+    approval_token: str = ""
+    approval_scope: str = ""
+    policy_revision: str = ""
     type: Literal["permission.requested"] = "permission.requested"
     run_id: str
     tool_use_id: str
@@ -181,7 +282,7 @@ class PermissionDeniedEvent(BaseModel):
 
 class SubagentStartedEvent(BaseModel):
     type: Literal["subagent.started"] = "subagent.started"
-    run_id: str          # 子 agent run_id
+    run_id: str  # 子 agent run_id
     parent_run_id: str
     description: str
     ts: str
@@ -191,7 +292,7 @@ class SubagentFinishedEvent(BaseModel):
     type: Literal["subagent.finished"] = "subagent.finished"
     run_id: str
     parent_run_id: str
-    status: str          # "success" | "failed"
+    status: str  # "success" | "failed"
     ts: str
 
 
@@ -222,7 +323,15 @@ Event = Annotated[
     | SessionWaitingForInputEvent
     | SessionResumedEvent
     | SessionClosedEvent
+    | ContextSourcesLoadedEvent
+    | ContextMemoryUpdatedEvent
+    | ContextCacheUsageEvent
+    | ContextBudgetCheckedEvent
+    | ContextPrunedEvent
+    | ContextCompactionStartedEvent
+    | ContextCompactionFailedEvent
     | ContextCompactedEvent
+    | SecurityDecisionEvent
     | PermissionRequestedEvent
     | PermissionGrantedEvent
     | PermissionDeniedEvent

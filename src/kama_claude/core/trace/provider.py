@@ -17,6 +17,11 @@ def _now() -> str:
 
 
 class TracingProvider:
+    # 将底层预算治理标记透传，避免上层重复计费与计数
+    @property
+    def governed(self) -> bool:
+        return getattr(self._inner, "governed", False) is True
+
     # 包裹真实 LLMProvider，在每次 chat() 调用前后向 TraceWriter 写入完整 API I/O 记录
     def __init__(
         self,

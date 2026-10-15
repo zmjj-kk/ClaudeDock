@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from kama_claude.core.security.capabilities import Capability
 from kama_claude.core.session.store import SessionStore
 from kama_claude.core.tools.base import BaseTool, ToolResult
 
@@ -12,6 +13,7 @@ class NoteSaveParams(BaseModel):
 
 
 class NoteSaveTool(BaseTool):
+    capabilities = frozenset({Capability.WRITE})
     params_model = NoteSaveParams
     name = "note_save"
     description = (
