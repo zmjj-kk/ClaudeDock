@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from kama_claude.core.compact.prompt import PromptText
-from kama_claude.core.context import ExecutionContext
+from claudedock.core.compact.prompt import PromptText
+from claudedock.core.context import ExecutionContext
 
 
 # 功能：验证目标与会话笔记变化不会改变稳定缓存前缀
@@ -27,8 +27,8 @@ async def test_cache_unsupported_falls_back_without_markers() -> None:
     import anthropic
     import httpx
 
-    from kama_claude.core.events.bus import EventBus
-    from kama_claude.core.llm.provider import AnthropicProvider
+    from claudedock.core.events.bus import EventBus
+    from claudedock.core.llm.provider import AnthropicProvider
 
     final = MagicMock()
     final.stop_reason = "end_turn"

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.memory.sqlite_store import MemorySqliteStore
+from claudedock.core.memory.sqlite_store import MemorySqliteStore
 
 
 # 构造升级前的真实数据库，避免新建表路径掩盖迁移问题

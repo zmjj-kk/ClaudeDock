@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-20",
+  "environment": "Ubuntu-22.04 / WSL / Python 3.12.13",
+  "scope": "Single-process local samples; no production or remote network performance claim",
+  "results": [
+    {
+      "calls_per_batch": 4,
+      "modes": {
+        "parallel": {
+          "calls_per_second": 141.544,
+          "error_count": 0,
+          "p50_ms": 24.367,
+          "p95_ms": 43.473
+        },
+        "serial": {
+          "calls_per_second": 47.516,
+          "error_count": 0,
+          "p50_ms": 84.101,
+          "p95_ms": 85.047
+        }
+      },
+      "sample": "simulated_async_20ms",
+      "samples_per_mode": 7
+    },
+    {
+      "calls_per_batch": 4,
+      "modes": {
+        "parallel": {
+          "calls_per_second": 226.545,
+          "error_count": 0,
+          "p50_ms": 17.458,
+          "p95_ms": 18.608
+        },
+        "serial": {
+          "calls_per_second": 399.585,
+          "error_count": 0,
+          "p50_ms": 10.07,
+          "p95_ms": 11.087
+        }
+      },
+      "sample": "local_files_256KiB",
+      "samples_per_mode": 7
+    }
+  ]
+}

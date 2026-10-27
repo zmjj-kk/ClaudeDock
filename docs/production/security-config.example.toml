@@ -1,5 +1,5 @@
-# 安装到 ~/.kama/config.toml；不要放入项目 .kama/config.toml。
-# 项目配置与 .env 不能授予安全权限或重定向 KAMA_CONFIG。
+# 安装到 ~/.claudedock/config.toml；不要放入项目 .claudedock/config.toml。
+# 项目配置与 .env 不能授予安全权限或重定向 CLAUDEDOCK_CONFIG。
 [permission]
 mode = "default"                   # plan | default | auto | bypass
 timeout_s = 60.0
@@ -10,8 +10,8 @@ classifier_timeout_s = 10.0
 classifier_max_calls = 100
 
 # 审查凭据只能在启动 daemon 前由宿主环境导出：
-# export KAMA_SECURITY_CLASSIFIER_API_KEY=...
-# export KAMA_PERMISSION_MODE=auto
+# export CLAUDEDOCK_SECURITY_CLASSIFIER_API_KEY=...
+# export CLAUDEDOCK_PERMISSION_MODE=auto
 # 缺模型、凭据或开关时 auto 回退人工确认，永不静默放行。
 # Stage1=128 tokens，Stage2=4096 tokens；并发2，失败3次熔断60秒。
 #

@@ -1,4 +1,4 @@
-# KamaClaude Agent 评测计划
+# ClaudeDock Agent 评测计划
 
 > 版本：v1（对应 S7，覆盖 Subagents / Skills / MCP / Multi-agent）
 > 原则：**沿执行链分层、确定性优先、可诊断**。任何一层失败都能定位到"工具错 / 动作错 / 轨迹错 / 目标没达成 / 线上收益差"中的哪一环。
@@ -7,7 +7,7 @@
 
 ## 0. 为什么现有代码已经具备评测地基
 
-在开始设计前，先盘点 KamaClaude 当前已经内置、可直接复用的评测资产：
+在开始设计前，先盘点 ClaudeDock 当前已经内置、可直接复用的评测资产：
 
 | 资产 | 位置 | 对评测的意义 |
 |---|---|---|
@@ -20,11 +20,11 @@
 | 集成测试基座 | `tests/conftest.py` + `tests/integration/test_run_e2e.py` | 已有"起真实 daemon 子进程 + 随机端口"的能力，端到端评测直接复用 |
 | `EventBus` / `ToolRegistry` | `core/events/bus.py`、`core/tools/registry.py` | 评测 harness 可注入内存 bus / 内存 registry 隔离副作用 |
 
-**核心结论**：KamaClaude 的架构天然是"评测友好"的——执行链的每个环节都有结构化产物。评测计划的落点，是**把这些产物系统化为四层评测 + 一套 harness + 一份可生长的数据集**，而不是重写执行链。
+**核心结论**：ClaudeDock 的架构天然是"评测友好"的——执行链的每个环节都有结构化产物。评测计划的落点，是**把这些产物系统化为四层评测 + 一套 harness + 一份可生长的数据集**，而不是重写执行链。
 
 ---
 
-## 1. 四层评测体系（映射到 KamaClaude 执行链）
+## 1. 四层评测体系（映射到 ClaudeDock 执行链）
 
 ```
                       执行链                         评测层
@@ -147,10 +147,10 @@ _RETRYABLE: frozenset[str] = frozenset({"runtime_error", "rate_limited"})
 
 ### 4.3 沙箱隔离
 
-`run_and_capture` 已支持注入 `provider/runs_dir/permission_manager`，且 `config` 全走 env 覆盖（`KAMA_*`）。端到端评测的每个 case 必须：
+`run_and_capture` 已支持注入 `provider/runs_dir/permission_manager`，且 `config` 全走 env 覆盖（`CLAUDEDOCK_*`）。端到端评测的每个 case 必须：
 
 - 独立 `tmp` cwd（`write_file`/`bash` 的副作用被隔离）；
-- 独立 `runs_dir` 与 `~/.kama` 覆盖；
+- 独立 `runs_dir` 与 `~/.claudedock` 覆盖；
 - **权限剧本化**：注入 `PermissionManager`（policy 可控）或自动应答 stub，实现"全 auto-allow"与"全 deny"两档，分别测"能力上限"与"安全下限"。
 
 ---
@@ -159,7 +159,7 @@ _RETRYABLE: frozenset[str] = frozenset({"runtime_error", "rate_limited"})
 
 ### 5.1 业务与工程指标（来自线上日志，非评测集）
 
-数据源：`~/.kama/traces/daemon.jsonl`（LLM 延迟/usage/payload）+ `~/.kama/logs/core.log` + 每 run 的 `events.jsonl`。
+数据源：`~/.claudedock/traces/daemon.jsonl`（LLM 延迟/usage/payload）+ `~/.claudedock/logs/core.log` + 每 run 的 `events.jsonl`。
 
 | 指标 | 计算来源 |
 |---|---|
@@ -186,10 +186,10 @@ _RETRYABLE: frozenset[str] = frozenset({"runtime_error", "rate_limited"})
 
 ## 6. 评测 Harness 设计
 
-新增包 `src/kama_claude/eval/`（与 `core` 平级），遵循项目代码风格（单行中文注释、pydantic v2、discriminated union）。
+新增包 `src/claudedock/eval/`（与 `core` 平级），遵循项目代码风格（单行中文注释、pydantic v2、discriminated union）。
 
 ```
-src/kama_claude/eval/
+src/claudedock/eval/
 ├── cases.py           # EvalCase 模型：goal/fixtures/约束/成功判据/难度/风险/来源
 ├── dataset.py         # 加载 YAML/JSONL 评测集，校验 schema
 ├── sandbox.py         # 隔离 tmp 环境 + 权限剧本 + runs_dir/配置覆盖
@@ -199,7 +199,7 @@ src/kama_claude/eval/
 ├── metrics.py         # 从 events 聚合：无效/重复/Token/时间/延迟分位
 ├── judge.py           # LLM-as-Judge（含偏差缓解）
 ├── reporter.py        # 输出 JSON 报告（分层得分 + 逐 case 明细），供 CI gate
-└── cli.py             # `kama eval` 入口
+└── cli.py             # `claudedock eval` 入口
 ```
 
 ### 6.1 `EvalCase`（pydantic v2）核心字段
@@ -252,7 +252,7 @@ class ScriptedProvider:
 
 ### 7.1 真实请求
 
-- 从 `~/.kama/` 的 session store / 日志采样，**去隐私**（脚本替换密钥/路径/邮箱/PII）。
+- 从 `~/.claudedock/` 的 session store / 日志采样，**去隐私**（脚本替换密钥/路径/邮箱/PII）。
 - **分层采样**：按任务类型（写代码/文件操作/调研/多步编排）× 难度 × 用到的工具 × 风险等级四维分层，**避免偏向高频简单请求**——刻意保量抽"低频高难度"与"高风险"样本。
 
 ### 7.2 边界场景（专攻工程隐患）

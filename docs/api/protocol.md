@@ -1,6 +1,6 @@
-# KamaClaude API 参考
+# ClaudeDock API 参考
 
-本文档描述 KamaClaude 的 JSON-RPC 2.0 协议定义。
+本文档描述 ClaudeDock 的 JSON-RPC 2.0 协议定义。
 
 ## 概览
 
@@ -17,7 +17,7 @@
   "jsonrpc": "2.0",
   "method": "core.ping",
   "params": {
-    "client": "kama-cli"
+    "client": "claudedock-cli"
   },
   "id": 1
 }
@@ -63,7 +63,7 @@
 **请求参数**:
 ```json
 {
-  "client": "kama-cli"  // 客户端标识（可选）
+  "client": "claudedock-cli"  // 客户端标识（可选）
 }
 ```
 

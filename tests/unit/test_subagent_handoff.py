@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kama_claude.core.subagent.handoff import ResultSummary, TaskHandoff
+from claudedock.core.subagent.handoff import ResultSummary, TaskHandoff
 
 
 # 功能：验证模型交接数据无法自行扩大工具权限
@@ -29,7 +29,7 @@ def test_result_claim_requires_execution_evidence(tmp_path: Path) -> None:
 async def test_parent_rechecks_changed_file(tmp_path: Path) -> None:
     import hashlib
 
-    from kama_claude.core.subagent.handoff import verify_result_files
+    from claudedock.core.subagent.handoff import verify_result_files
 
     path = tmp_path / "file.py"
     path.write_text("old")

@@ -2,7 +2,7 @@
 
 # 默认目标：显示帮助信息
 help:
-	@echo "KamaClaude 开发工具链"
+	@echo "ClaudeDock 开发工具链"
 	@echo ""
 	@echo "安装与配置："
 	@echo "  make install          安装所有依赖（包括开发依赖）"
@@ -24,7 +24,7 @@ help:
 	@echo "  make docs             生成协议文档（WIRE_PROTOCOL.md）"
 	@echo ""
 	@echo "开发与部署："
-	@echo "  make dev              启动开发环境（daemon + 自动重启）"
+	@echo "  make dev              启动守护进程"
 	@echo "  make docker-build     构建 Docker 镜像"
 	@echo "  make docker-up        启动 Docker Compose 服务"
 	@echo "  make docker-down      停止 Docker Compose 服务"
@@ -67,14 +67,14 @@ test-integration:
 
 # 生成测试覆盖率报告（HTML + 终端输出）
 coverage:
-	uv run pytest tests/unit -v --cov=src/kama_claude --cov-report=html --cov-report=term
+	uv run pytest tests/unit -v --cov=src/claudedock --cov-report=html --cov-report=term
 	@echo ""
 	@echo "覆盖率报告已生成：htmlcov/index.html"
 
 # 运行性能基准测试
 benchmark:
 	@echo "运行性能基准测试..."
-	@uv run pytest tests/benchmark -v --benchmark-only 2>/dev/null || echo "尚未实现 benchmark 测试"
+	@uv run pytest tests/benchmarks -q -s
 
 # 安全扫描
 security-check:
@@ -88,23 +88,23 @@ security-check:
 docs:
 	uv run python scripts/gen_protocol_doc.py
 
-# 启动开发环境（守护进程 + 自动重启）
+# 启动开发守护进程
 dev:
-	@echo "启动 kama-core 守护进程（按 Ctrl+C 停止）..."
-	@uv run kama-core
+	@echo "启动 claudedock-core 守护进程（按 Ctrl+C 停止）..."
+	@uv run claudedock-core
 
 # Docker 构建
 docker-build:
-	docker build -t kamaclaude:latest .
+	docker build -t claudedock:latest .
 
 # Docker Compose 启动
 docker-up:
-	docker-compose up -d
-	@echo "服务已启动，查看日志：docker-compose logs -f"
+	docker compose up -d
+	@echo "服务已启动，查看日志：docker compose logs -f"
 
 # Docker Compose 停止
 docker-down:
-	docker-compose down
+	docker compose down
 
 # 清理缓存和临时文件
 clean:

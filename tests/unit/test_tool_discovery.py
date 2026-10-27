@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.discovery import ToolSearchTool
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.discovery import ToolSearchTool
+from claudedock.core.tools.registry import ToolRegistry
 
 
 class ExampleTool(BaseTool):

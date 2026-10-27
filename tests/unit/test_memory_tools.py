@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kama_claude.core.config import MemoryConfig
-from kama_claude.core.memory.sqlite_store import MemorySqliteStore
-from kama_claude.core.memory.store import MemoryStore
-from kama_claude.core.memory.vector_store import MemoryVectorStore
-from kama_claude.core.rag.index import Bm25Index
-from kama_claude.core.tools.builtin.memory_query import MemoryQueryTool
-from kama_claude.core.tools.builtin.memory_save import MemorySaveTool
-from kama_claude.core.tools.builtin.memory_search import MemorySearchTool
+from claudedock.core.config import MemoryConfig
+from claudedock.core.memory.sqlite_store import MemorySqliteStore
+from claudedock.core.memory.store import MemoryStore
+from claudedock.core.memory.vector_store import MemoryVectorStore
+from claudedock.core.rag.index import Bm25Index
+from claudedock.core.tools.builtin.memory_query import MemoryQueryTool
+from claudedock.core.tools.builtin.memory_save import MemorySaveTool
+from claudedock.core.tools.builtin.memory_search import MemorySearchTool
 
 
 # 组装带双层存储的 MemoryStore 供工具测试复用

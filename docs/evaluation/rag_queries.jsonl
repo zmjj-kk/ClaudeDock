@@ -1,4 +1,4 @@
-{"id": "q001", "query": "配置文件有几层优先级？", "relevant_docs": ["architecture.md"], "ground_truth": "五层优先级，后者覆盖前者：内置默认值 → 全局 ~/.kama/config.toml → 项目本地 .kama/config.toml → .env → 环境变量，未知配置键会硬退出"}
+{"id": "q001", "query": "配置文件有几层优先级？", "relevant_docs": ["architecture.md"], "ground_truth": "五层优先级，后者覆盖前者：内置默认值 → 全局 ~/.claudedock/config.toml → 项目本地 .claudedock/config.toml → .env → 环境变量，未知配置键会硬退出"}
 {"id": "q002", "query": "RAG 的检索后端用什么算法融合词法和语义？", "relevant_docs": ["rag_retrieval_upgrade.md"], "ground_truth": "混合检索：BM25 做词法检索、embedding-3 做语义检索，用 RRF（倒数排名融合）按排名合并，尺度无关、无需分数归一化"}
 {"id": "q003", "query": "知识库的切片策略是什么？", "relevant_docs": ["rag.md"], "ground_truth": "语义边界切片：先按结构块（标题/代码块/段落）切分，段落再按句末标点切句，最后贪心合并相邻单元直到不超过 chunk_size"}
 {"id": "q004", "query": "评测体系分了哪几层？", "relevant_docs": ["agent_evaluation_plan.md"], "ground_truth": "四层：工具层（可靠性与正确性）、单步与轨迹层（过程合理性）、端到端任务层（目标达成度）、线上业务层（实际收益与损耗）"}

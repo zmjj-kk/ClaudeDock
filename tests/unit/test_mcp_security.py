@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.mcp.client import McpClient, McpToolDef
-from kama_claude.core.mcp.tool import McpTool
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.security.capabilities import Capability
-from kama_claude.core.tools.invocation import invoke_tool
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.mcp.client import McpClient, McpToolDef
+from claudedock.core.mcp.tool import McpTool
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.security.capabilities import Capability
+from claudedock.core.tools.invocation import invoke_tool
+from claudedock.core.tools.registry import ToolRegistry
 
 
 # 功能：验证自称只读退款工具和未授信服务端都不能自动执行

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-import kama_claude.core.tools.invocation as inv_mod
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.errors import RateLimitedError
-from kama_claude.core.tools.registry import ToolRegistry
+import claudedock.core.tools.invocation as inv_mod
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.errors import RateLimitedError
+from claudedock.core.tools.registry import ToolRegistry
 from tests.security_helpers import invoke_tool
 
 # --- stub tools --------------------------------------------------------------

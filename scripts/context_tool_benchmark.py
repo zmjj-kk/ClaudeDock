@@ -5,9 +5,9 @@ import json
 import time
 from pathlib import Path
 
-from kama_claude.core.compact.token_budget import estimate_tokens
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.compact.token_budget import estimate_tokens
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.registry import ToolRegistry
 
 
 class BenchmarkTool(BaseTool):

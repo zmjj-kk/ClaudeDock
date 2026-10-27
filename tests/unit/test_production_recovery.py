@@ -7,30 +7,30 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kama_claude.core.app import CoreApp
-from kama_claude.core.bus.events import RunStartedEvent
-from kama_claude.core.config import KamaConfig
-from kama_claude.core.context import ExecutionBudget, ExecutionContext
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.journal import RunJournal, current_journal
-from kama_claude.core.llm.governed import GovernedProvider
-from kama_claude.core.llm.types import LlmResponse, ToolCallBlock, UsageStats
-from kama_claude.core.loop import AgentLoop
-from kama_claude.core.mcp.client import McpClient, McpServerUnavailableError, McpToolError
-from kama_claude.core.runtime_config import RuntimeConfig, apply_runtime
-from kama_claude.core.session.manager import SessionManager
-from kama_claude.core.session.model import Session
-from kama_claude.core.session.store import SessionStore
-from kama_claude.core.subagent.registry import BackgroundTaskRegistry
-from kama_claude.core.supervisor import RunSupervisor
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.paths import read_inside, write_inside
-from kama_claude.core.tools.registry import ToolRegistry
-from kama_claude.core.trace.record import TraceRecord
-from kama_claude.core.trace.writer import TraceWriter
-from kama_claude.core.transport.auth import read_token, server_token, token_path
-from kama_claude.core.transport.ipc_broadcaster import IpcEventBroadcaster
-from kama_claude.core.transport.socket_client import SocketClient
+from claudedock.core.app import CoreApp
+from claudedock.core.bus.events import RunStartedEvent
+from claudedock.core.config import ClaudeDockConfig
+from claudedock.core.context import ExecutionBudget, ExecutionContext
+from claudedock.core.events.bus import EventBus
+from claudedock.core.journal import RunJournal, current_journal
+from claudedock.core.llm.governed import GovernedProvider
+from claudedock.core.llm.types import LlmResponse, ToolCallBlock, UsageStats
+from claudedock.core.loop import AgentLoop
+from claudedock.core.mcp.client import McpClient, McpServerUnavailableError, McpToolError
+from claudedock.core.runtime_config import RuntimeConfig, apply_runtime
+from claudedock.core.session.manager import SessionManager
+from claudedock.core.session.model import Session
+from claudedock.core.session.store import SessionStore
+from claudedock.core.subagent.registry import BackgroundTaskRegistry
+from claudedock.core.supervisor import RunSupervisor
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.paths import read_inside, write_inside
+from claudedock.core.tools.registry import ToolRegistry
+from claudedock.core.trace.record import TraceRecord
+from claudedock.core.trace.writer import TraceWriter
+from claudedock.core.transport.auth import read_token, server_token, token_path
+from claudedock.core.transport.ipc_broadcaster import IpcEventBroadcaster
+from claudedock.core.transport.socket_client import SocketClient
 from tests.security_helpers import invoke_tool
 
 
@@ -50,13 +50,13 @@ def session():
 # 功能：守护进程完成初始化、响应带认证 ping、关闭后无残留订阅或任务
 # 设计：真实启动 CoreApp 与 TCP 服务器，只替换信号触发，避免真实 API 和操作系统信号干扰
 async def test_core_start_ping_and_shutdown(tmp_path, monkeypatch):
-    config = KamaConfig(port=0, sessions_dir=str(tmp_path / "sessions"))
+    config = ClaudeDockConfig(port=0, sessions_dir=str(tmp_path / "sessions"))
     config.logging.file = ""
     config.trace.file = str(tmp_path / "trace.jsonl")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("KAMA_IPC_TOKEN", raising=False)
-    monkeypatch.setattr("kama_claude.core.app.get_config", lambda: config)
+    monkeypatch.delenv("CLAUDEDOCK_IPC_TOKEN", raising=False)
+    monkeypatch.setattr("claudedock.core.app.get_config", lambda: config)
     loop = asyncio.get_running_loop()
     signals = {}
     monkeypatch.setattr(
@@ -97,13 +97,13 @@ async def test_core_start_ping_and_shutdown(tmp_path, monkeypatch):
 # 功能：启动中途发生错误时已创建的 Trace 与广播器仍逆序关闭
 # 设计：在会话恢复阶段注入异常，检查真正后台任务被回收而非仅断言 close 被调用
 async def test_core_start_failure_cleans_resources(tmp_path, monkeypatch):
-    config = KamaConfig(port=0, sessions_dir=str(tmp_path / "sessions"))
+    config = ClaudeDockConfig(port=0, sessions_dir=str(tmp_path / "sessions"))
     config.logging.file = ""
     config.trace.file = str(tmp_path / "trace.jsonl")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("KAMA_IPC_TOKEN", raising=False)
-    monkeypatch.setattr("kama_claude.core.app.get_config", lambda: config)
+    monkeypatch.delenv("CLAUDEDOCK_IPC_TOKEN", raising=False)
+    monkeypatch.setattr("claudedock.core.app.get_config", lambda: config)
     monkeypatch.setattr(
         SessionManager, "restore", AsyncMock(side_effect=OSError("startup failure"))
     )
@@ -119,7 +119,7 @@ async def test_core_start_failure_cleans_resources(tmp_path, monkeypatch):
 # 设计：在 meta 投影写入前失败，重开 Store 后检查消息 run_id 与 meta.run_ids 一致
 def test_session_transaction_recovers(tmp_path, monkeypatch):
     store = SessionStore(tmp_path)
-    original = __import__("kama_claude.core.session.store", fromlist=["atomic_write"]).atomic_write
+    original = __import__("claudedock.core.session.store", fromlist=["atomic_write"]).atomic_write
 
     # 仅阻断元数据投影，不阻断事务日志
     def fail(path, content):
@@ -127,10 +127,10 @@ def test_session_transaction_recovers(tmp_path, monkeypatch):
             raise OSError("injected")
         original(path, content)
 
-    monkeypatch.setattr("kama_claude.core.session.store.atomic_write", fail)
+    monkeypatch.setattr("claudedock.core.session.store.atomic_write", fail)
     with pytest.raises(OSError):
         store.begin_run(session(), "question", "run")
-    monkeypatch.setattr("kama_claude.core.session.store.atomic_write", original)
+    monkeypatch.setattr("claudedock.core.session.store.atomic_write", original)
     recovered = SessionStore(tmp_path)
     assert recovered.read_meta("sess").run_ids == ["run"]
     rows = json.loads((tmp_path / "sess/thread.jsonl").read_text())
@@ -281,7 +281,7 @@ async def test_supervisor_state_and_cancel():
 # 设计：临时 HOME 隔离真实凭证，真实文件权限操作覆盖 Linux 授权边界
 def test_local_token_permissions(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("KAMA_IPC_TOKEN", raising=False)
+    monkeypatch.delenv("CLAUDEDOCK_IPC_TOKEN", raising=False)
     token = server_token(7437)
     assert len(token) >= 32 and read_token(7437) == token
     assert server_token(7437) == token
@@ -516,7 +516,7 @@ async def test_tls_authenticated_ipc_and_untrusted_certificate(tmp_path, monkeyp
     import ssl
     import subprocess
 
-    from kama_claude.core.transport.socket_server import SocketServer
+    from claudedock.core.transport.socket_server import SocketServer
 
     if not shutil.which("openssl"):
         pytest.skip("openssl required for certificate fixture")
@@ -550,15 +550,15 @@ async def test_tls_authenticated_ipc_and_untrusted_certificate(tmp_path, monkeyp
     server.register("ping", AsyncMock(return_value={"ok": True}))
     await server.start()
     port = server._server.sockets[0].getsockname()[1]
-    monkeypatch.setenv("KAMA_TLS_CA", str(cert))
+    monkeypatch.setenv("CLAUDEDOCK_TLS_CA", str(cert))
     client = SocketClient("127.0.0.1", port, token="t" * 32, request_timeout=2)
     reader = None
     try:
         await client.connect()
         reader = asyncio.create_task(client.run_event_loop())
         assert await client.send_command("ping", {}) == {"ok": True}
-        monkeypatch.delenv("KAMA_TLS_CA")
-        monkeypatch.setenv("KAMA_TLS_ENABLE", "1")
+        monkeypatch.delenv("CLAUDEDOCK_TLS_CA")
+        monkeypatch.setenv("CLAUDEDOCK_TLS_ENABLE", "1")
         with pytest.raises(ssl.SSLCertVerificationError):
             await SocketClient("127.0.0.1", port).connect()
     finally:
@@ -571,8 +571,8 @@ async def test_tls_authenticated_ipc_and_untrusted_certificate(tmp_path, monkeyp
 # 功能：记忆索引刷新保留正在被读取的旧版本，读者退出后才删除
 # 设计：阻塞旧索引搜索并发布新索引，验证返回旧条目且回收恰好一次
 async def test_memory_snapshot_retired_after_last_reader():
-    from kama_claude.core.memory.model import MemoryEntry
-    from kama_claude.core.memory.vector_store import MemoryVectorStore
+    from claudedock.core.memory.model import MemoryEntry
+    from claudedock.core.memory.vector_store import MemoryVectorStore
 
     initial, old, new = MagicMock(), MagicMock(), MagicMock()
     initial.fork.return_value = old
@@ -607,7 +607,7 @@ async def test_memory_snapshot_retired_after_last_reader():
 # 设计：模拟三种结构不完整的模型输出，验证压缩被拒绝
 @pytest.mark.parametrize("invalid", ["missing", "empty", "reordered"])
 async def test_compaction_rejects_invalid_section_integrity(tmp_path, invalid):
-    from kama_claude.core.compact.compactor import Compactor
+    from claudedock.core.compact.compactor import Compactor
 
     titles = [
         "Original Goal",

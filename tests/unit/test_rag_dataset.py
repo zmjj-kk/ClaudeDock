@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.eval.rag_dataset import load_dataset
+from claudedock.eval.rag_dataset import load_dataset
 
 
 # 功能：验证 load_dataset 从 JSONL 加载合法行，缺失文件返回空列表

@@ -7,23 +7,23 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
-  kama-core:
+  claudedock-core:
     build: .
     ports:
       - "127.0.0.1:7437:7437"
     volumes:
       - ./workspace:/app/workspace
-      - kama_state:/home/kama/.kama
+      - claudedock_state:/home/claudedock/.claudedock
     environment:
-      KAMA_HOST: 0.0.0.0
-      KAMA_PORT: 7437
-      KAMA_ALLOW_REMOTE: "1"
-      KAMA_TRUSTED_PROXY: "1"  # 容器外仅发布 loopback，公网接入必须另外配置 TLS
-      KAMA_IPC_TOKEN: ${KAMA_IPC_TOKEN:?Set a random KAMA_IPC_TOKEN before starting Compose}
-      KAMA_LOG_FORMAT: json
+      CLAUDEDOCK_HOST: 0.0.0.0
+      CLAUDEDOCK_PORT: 7437
+      CLAUDEDOCK_ALLOW_REMOTE: "1"
+      CLAUDEDOCK_TRUSTED_PROXY: "1"  # 容器外仅发布 loopback，公网接入必须另外配置 TLS
+      CLAUDEDOCK_IPC_TOKEN: ${CLAUDEDOCK_IPC_TOKEN:?Set a random CLAUDEDOCK_IPC_TOKEN before starting Compose}
+      CLAUDEDOCK_LOG_FORMAT: json
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      KAMA_LLM_DEFAULT_MODEL: ${KAMA_LLM_DEFAULT_MODEL:-claude-sonnet-4-6}
-      KAMA_RAG_QDRANT_URL: http://qdrant:6333
+      CLAUDEDOCK_LLM_DEFAULT_MODEL: ${CLAUDEDOCK_LLM_DEFAULT_MODEL:-claude-sonnet-4-6}
+      CLAUDEDOCK_RAG_QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:?Set a random QDRANT_API_KEY}
     depends_on:
       - qdrant
@@ -35,7 +35,7 @@ services:
     mem_limit: 2g
     cpus: 2
     healthcheck:
-      test: ["CMD", "python", "-m", "kama_claude.core.transport.healthcheck"]
+      test: ["CMD", "python", "-m", "claudedock.core.transport.healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -43,4 +43,4 @@ services:
 
 volumes:
   qdrant_storage:
-  kama_state:
+  claudedock_state:

@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from kama_claude.core.config import KamaConfig
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import LlmResponse, ToolCallBlock
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.runner import AgentRunner
-from kama_claude.core.tools.builtin.bash import BashTool
+from claudedock.core.config import ClaudeDockConfig
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import LlmResponse, ToolCallBlock
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.runner import AgentRunner
+from claudedock.core.tools.builtin.bash import BashTool
 
 
 # 仅隔离审批流程测试使用非沙箱执行，沙箱边界由独立回归测试验证
@@ -90,7 +90,7 @@ def _runner(
     tmp_path: Path,
     max_steps: int = 10,
 ) -> AgentRunner:
-    config = KamaConfig()
+    config = ClaudeDockConfig()
     config.agent.max_steps = max_steps
     return AgentRunner(
         config,

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.compact.tool_result_store import ResultBudget, ToolResultStore
-from kama_claude.core.tools.base import ToolResult
+from claudedock.core.compact.tool_result_store import ResultBudget, ToolResultStore
+from claudedock.core.tools.base import ToolResult
 
 
 # 功能：验证两兆输出只进入有限预览，原文可校验分页读取
@@ -45,7 +45,10 @@ def test_round_limit_and_storage_failure(tmp_path: Path) -> None:
     store = ToolResultStore(tmp_path / "a", max_bytes=1000)
     budget = ResultBudget(store, "run", 100)
     assert budget.bound(ToolResult("a" * 80), "a").content == "a" * 80
-    assert "[tool-result-ref:" in budget.bound(ToolResult("b" * 80), "b").content
+    bounded = budget.bound(ToolResult("b" * 80), "b")
+    assert len(bounded.content.encode("utf-8")) <= 20
+    assert bounded.content.startswith("Output omitted:")
+    assert budget.remaining == 0
     tiny = ToolResultStore(tmp_path / "b", max_bytes=1, quota_bytes=1)
     error = tiny.bound(ToolResult("already executed"), "run", "call", 10)
     assert error.error_type == "output_storage_error"

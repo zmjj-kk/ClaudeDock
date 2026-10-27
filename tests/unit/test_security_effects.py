@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.security.context import digest
-from kama_claude.core.security.decision_audit import SecurityAudit
-from kama_claude.core.security.effects import EffectExecutor, PreparedEffect
+from claudedock.core.security.context import digest
+from claudedock.core.security.decision_audit import SecurityAudit
+from claudedock.core.security.effects import EffectExecutor, PreparedEffect
 
 
 class Backend:

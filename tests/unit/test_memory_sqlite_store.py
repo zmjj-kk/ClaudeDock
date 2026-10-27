@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kama_claude.core.memory.model import MemoryEntry
-from kama_claude.core.memory.sqlite_store import MemorySqliteStore
+from claudedock.core.memory.model import MemoryEntry
+from claudedock.core.memory.sqlite_store import MemorySqliteStore
 
 
 # 功能：验证 upsert 写入后 get 能读回完整字段

@@ -4,7 +4,7 @@ import asyncio
 import json
 import subprocess
 
-from kama_claude.core.transport.auth import read_token
+from claudedock.core.transport.auth import read_token
 
 
 # 功能：验证真实 daemon 响应 core.ping 命令并返回包含版本、uptime、时间戳的 PongResult

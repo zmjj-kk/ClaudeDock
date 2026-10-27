@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.skills.loader import Skill, SkillLoader
-from kama_claude.core.skills.tool import ReadSkillResourceTool, UseSkillTool
+from claudedock.core.skills.loader import Skill, SkillLoader
+from claudedock.core.skills.tool import ReadSkillResourceTool, UseSkillTool
 
 
 # 功能：skill_index 每项应为 "name: description" 格式，供启动时紧凑注入
@@ -24,7 +24,7 @@ def test_skill_index_format() -> None:
 # 功能：目录式 skill 应能解析出 directory 与 resources（渐进式加载第二层）
 # 设计：写入 name/SKILL.md + references/x.md，断言 resources 含相对路径且 directory 正确
 def test_directory_skill_resources(tmp_path: Path) -> None:
-    skills_dir = tmp_path / ".kama" / "skills"
+    skills_dir = tmp_path / ".claudedock" / "skills"
     skill_dir = skills_dir / "mydoc"
     (skill_dir / "references").mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -98,7 +98,7 @@ async def test_use_skill_tool_unknown() -> None:
 async def test_read_skill_resource_rejects_undeclared(tmp_path: Path) -> None:
     import os
 
-    skills_dir = tmp_path / ".kama" / "skills"
+    skills_dir = tmp_path / ".claudedock" / "skills"
     skill_dir = skills_dir / "mydoc"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -125,7 +125,7 @@ async def test_read_skill_resource_rejects_undeclared(tmp_path: Path) -> None:
 async def test_read_skill_resource_reads_file(tmp_path: Path) -> None:
     import os
 
-    skills_dir = tmp_path / ".kama" / "skills"
+    skills_dir = tmp_path / ".claudedock" / "skills"
     skill_dir = skills_dir / "mydoc"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -151,7 +151,7 @@ async def test_read_skill_resource_reads_file(tmp_path: Path) -> None:
 async def test_read_skill_resource_path_traversal(tmp_path: Path) -> None:
     import os
 
-    skills_dir = tmp_path / ".kama" / "skills"
+    skills_dir = tmp_path / ".claudedock" / "skills"
     skill_dir = skills_dir / "mydoc"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(

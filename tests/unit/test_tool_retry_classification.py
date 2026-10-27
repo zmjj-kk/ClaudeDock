@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-import kama_claude.core.tools.invocation as inv_mod
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.mcp.tool import McpTool
-from kama_claude.core.subagent.tool import AgentResultTool, SpawnAgentTool
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.builtin import (
+import claudedock.core.tools.invocation as inv_mod
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.mcp.tool import McpTool
+from claudedock.core.subagent.tool import AgentResultTool, SpawnAgentTool
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.builtin import (
     BashTool,
     ListDirTool,
     NoteSaveTool,
@@ -19,8 +19,8 @@ from kama_claude.core.tools.builtin import (
     TaskUpdateTool,
     WriteFileTool,
 )
-from kama_claude.core.tools.registry import ToolRegistry
-from kama_claude.eval.checkers import assert_tool_result
+from claudedock.core.tools.registry import ToolRegistry
+from claudedock.eval.checkers import assert_tool_result
 from tests.security_helpers import invoke_tool
 
 # 只读/幂等工具：runtime_error 可安全自动重试，不会产生副作用

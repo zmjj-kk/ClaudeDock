@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from kama_claude.core.compact.token_budget import estimate_tokens
-from kama_claude.core.config import MemoryConfig
-from kama_claude.core.memory.store import MemoryStore
+from claudedock.core.compact.token_budget import estimate_tokens
+from claudedock.core.config import MemoryConfig
+from claudedock.core.memory.store import MemoryStore
 
 
 # 功能：验证过期、跨项目记忆被过滤且注入不超过预算

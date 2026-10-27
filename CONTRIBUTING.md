@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 KamaClaude 的关注！本指南将帮助你快速上手项目开发。
+感谢你对 ClaudeDock 的关注！本指南将帮助你快速上手项目开发。
 
 ## 目录
 
@@ -28,8 +28,8 @@
 
 ```bash
 # 1. Fork 并克隆仓库
-git clone https://github.com/YOUR_USERNAME/KamaClaude.git
-cd KamaClaude
+git clone https://github.com/YOUR_USERNAME/ClaudeDock.git
+cd ClaudeDock
 
 # 2. 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -106,11 +106,11 @@ def process_message(data):
 
 ### 异常处理
 
-使用 `src/kama_claude/core/errors.py` 中定义的具体异常类，避免宽泛的 `except Exception`：
+使用 `src/claudedock/core/errors.py` 中定义的具体异常类，避免宽泛的 `except Exception`：
 
 ```python
 # ✅ 正确
-from kama_claude.core.errors import ToolExecutionError, ToolNotFoundError
+from claudedock.core.errors import ToolExecutionError, ToolNotFoundError
 
 try:
     tool = registry.get(name)
@@ -231,7 +231,7 @@ tests/
 
 ### 测试覆盖率
 
-- **核心模块** (`src/kama_claude/core/`) 要求 **≥80%** 覆盖率
+- **核心模块** (`src/claudedock/core/`) 要求 **≥80%** 覆盖率
 - **新功能** 必须包含单元测试
 - **Bug 修复** 应添加回归测试
 
@@ -249,7 +249,7 @@ open htmlcov/index.html
 
 ```python
 import pytest
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.tools.registry import ToolRegistry
 
 # 功能：验证注册同名工具时抛出异常
 # 设计：先注册一个工具，再尝试注册同名工具，断言抛出 ValueError
@@ -319,7 +319,7 @@ class ToolRegistry:
 1. **环境信息**
    - 操作系统和版本
    - Python 版本
-   - KamaClaude 版本
+   - ClaudeDock 版本
 
 2. **复现步骤**
    - 详细的操作步骤
@@ -330,7 +330,7 @@ class ToolRegistry:
 4. **日志输出**
    ```bash
    # 启用详细日志
-   KAMA_LOG_LEVEL=DEBUG uv run kama-core
+   CLAUDEDOCK_LOG_LEVEL=DEBUG uv run claudedock-core
    ```
 
 ### 功能请求

@@ -6,9 +6,9 @@ if [ ! -x .venv/bin/python ]; then
     exit 1
 fi
 command -v prlimit >/dev/null || { printf 'Install util-linux first\n' >&2; exit 1; }
-mkdir -p .kama/local-sandbox
-chmod 700 .kama/local-sandbox
-cd .kama/local-sandbox
+mkdir -p .claudedock/local-sandbox
+chmod 700 .claudedock/local-sandbox
+cd .claudedock/local-sandbox
 # 使用系统配置的 Ubuntu/Debian 源下载，不修改系统包数据库。
 apt-get download bubblewrap
 package=$(find . -maxdepth 1 -type f -name 'bubblewrap_*.deb' | sort | tail -1)

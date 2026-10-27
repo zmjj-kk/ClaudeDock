@@ -1,15 +1,15 @@
-# KamaClaude RAG 检索增强设计
+# ClaudeDock RAG 检索增强设计
 
-> 定位：为 KamaClaude 引入**本地知识库检索增强（RAG）**，让 agent 在回答前先召回项目/领域知识，弥补「静态 context.md 注入」和「上下文压缩」两套机制在"按需取用外部知识"上的空白。
+> 定位：为 ClaudeDock 引入**本地知识库检索增强（RAG）**，让 agent 在回答前先召回项目/领域知识，弥补「静态 context.md 注入」和「上下文压缩」两套机制在"按需取用外部知识"上的空白。
 > 首版采用**零外部依赖**的内置 TF-IDF 方案，作为一个普通 `BaseTool`（`rag_search`）接入工具白名单体系；文档末尾给出走 MCP 的替代路径供需要更强语义检索时升级。
 
 ---
 
 ## 0. 背景与目标
 
-KamaClaude 现有的"知识"来源是两处静态注入：
+ClaudeDock 现有的"知识"来源是两处静态注入：
 
-- **Global/Project Context**：`~/.kama/context.md` 与 `.kama/context.md`，每次 run 开头一次性塞进 system prompt（见 `core/runner.py` 的 `load_context_file`）。
+- **Global/Project Context**：`~/.claudedock/context.md` 与 `.claudedock/context.md`，每次 run 开头一次性塞进 system prompt（见 `core/runner.py` 的 `load_context_file`）。
 - **压缩摘要**：上下文超阈值后由 `Compactor` 生成的 `summary_<ts>.md`。
 
 两者都是"全量或人工维护"的思路：要么整份注入，要么靠人工写 context。**缺的是"按需检索"**——当知识库很大、或分布在多个文件里时，agent 应该能带着问题主动查一次，而不是把整本手册塞进上下文。
@@ -19,7 +19,7 @@ RAG 模块补齐这一环，目标：
 1. 提供一个 `rag_search` 工具，agent 可主动调用。
 2. 索引本地知识库目录（递归 `.md` / `.txt`），检索返回**最相关的若干文本块 + 来源路径**。
 3. 零外部依赖（不引入 embedding 模型、向量数据库、分词库），纯标准库实现，保证项目"可离线、可移植"的定位。
-4. 通过 `[rag]` 配置段与 `KAMA_RAG_*` 环境变量可控启用，默认关闭。
+4. 通过 `[rag]` 配置段与 `CLAUDEDOCK_RAG_*` 环境变量可控启用，默认关闭。
 
 ---
 
@@ -158,30 +158,30 @@ def _tokenize(text: str) -> list[str]:
 
 ## 5. 配置
 
-新增 `RagConfig`，并入 `KamaConfig.rag`，沿用项目五层优先级（默认 → 全局 TOML → 项目本地 TOML → `.env` → 环境变量）。
+新增 `RagConfig`，并入 `ClaudeDockConfig.rag`，沿用项目五层优先级（默认 → 全局 TOML → 项目本地 TOML → `.env` → 环境变量）。
 
 ```python
 @dataclass
 class RagConfig:
     enabled: bool = False                       # 是否注册 rag_search 工具
-    knowledge_dir: str = "~/.kama/knowledge"    # 知识库根目录（递归 .md/.txt）
+    knowledge_dir: str = "~/.claudedock/knowledge"    # 知识库根目录（递归 .md/.txt）
     top_k: int = 3                              # 每次检索返回 chunk 数
     chunk_size: int = 800                       # 分块字符数
     chunk_overlap: int = 100                    # 相邻块重叠字符数
 ```
 
-**TOML**（`~/.kama/config.toml` 或 `.kama/config.toml`）：
+**TOML**（`~/.claudedock/config.toml` 或 `.claudedock/config.toml`）：
 
 ```toml
 [rag]
 enabled = true
-knowledge_dir = "~/.kama/knowledge"
+knowledge_dir = "~/.claudedock/knowledge"
 top_k = 3
 chunk_size = 800
 chunk_overlap = 100
 ```
 
-**环境变量**：`KAMA_RAG_ENABLED`、`KAMA_RAG_KNOWLEDGE_DIR`、`KAMA_RAG_TOP_K`、`KAMA_RAG_CHUNK_SIZE`、`KAMA_RAG_CHUNK_OVERLAP`。布尔按 `0/false/no` 判定为假，其余为真；数值非法时 `SystemExit`，与既有 `_apply_env` 一致。
+**环境变量**：`CLAUDEDOCK_RAG_ENABLED`、`CLAUDEDOCK_RAG_KNOWLEDGE_DIR`、`CLAUDEDOCK_RAG_TOP_K`、`CLAUDEDOCK_RAG_CHUNK_SIZE`、`CLAUDEDOCK_RAG_CHUNK_OVERLAP`。布尔按 `0/false/no` 判定为假，其余为真；数值非法时 `SystemExit`，与既有 `_apply_env` 一致。
 
 `_apply_toml` 中新增 `[rag]` 段，未知 key、类型错误均硬退出，与其他段保持同一套校验风格。
 
@@ -197,7 +197,7 @@ chunk_overlap = 100
 - 对任意 retriever（bm25/embedding/hybrid）生效，最常用在 hybrid 上（先保证召回，再精排）。
 - 未配置 `api_key` 时自动降级为单阶段（reranker 为 None）。
 
-配置键：`rerank_enabled`（bool，默认 `false`）、`rerank_model`（str，默认 `rerank`）、`rerank_depth`（int>0，默认 `50`）。环境变量：`KAMA_RAG_RERANK_ENABLED`、`KAMA_RAG_RERANK_MODEL`、`KAMA_RAG_RERANK_DEPTH`。
+配置键：`rerank_enabled`（bool，默认 `false`）、`rerank_model`（str，默认 `rerank`）、`rerank_depth`（int>0，默认 `50`）。环境变量：`CLAUDEDOCK_RAG_RERANK_ENABLED`、`CLAUDEDOCK_RAG_RERANK_MODEL`、`CLAUDEDOCK_RAG_RERANK_DEPTH`。
 
 ```toml
 [rag]
@@ -227,13 +227,13 @@ rerank_depth = 50
 
 **词法路边界（有意不并入 Qdrant）**：混合检索里，`QdrantIndex` 只接管 **dense 语义路** 的 ANN 存储与检索，**词法一路保持内存 `Bm25Index`（倒排表 TAAT）**，`HybridIndex` 在内存里用 RRF 融合两路。评估过「Qdrant 原生稀疏向量 + 服务端 `FusionQuery` RRF」方案后放弃——它要求把 token 哈希成 uint32 稀疏维度并重写建库/查询路径，收益与现有倒排表等价，却引入非默认的稀疏编码。故词法路固定用 `Bm25Index` + 默认 `hash_text`（sha256 hexdigest），不做稀疏向量改造。
 
-配置键：`vector_db`（str，默认 `""` 走 JSON 缓存；`"qdrant"` 启用）、`qdrant_url`（str，默认 `""` 走 local mode）、`qdrant_path`（str，默认 `~/.kama/qdrant`）。环境变量：`KAMA_RAG_VECTOR_DB`、`KAMA_RAG_QDRANT_URL`、`KAMA_RAG_QDRANT_PATH`。
+配置键：`vector_db`（str，默认 `""` 走 JSON 缓存；`"qdrant"` 启用）、`qdrant_url`（str，默认 `""` 走 local mode）、`qdrant_path`（str，默认 `~/.claudedock/qdrant`）。环境变量：`CLAUDEDOCK_RAG_VECTOR_DB`、`CLAUDEDOCK_RAG_QDRANT_URL`、`CLAUDEDOCK_RAG_QDRANT_PATH`。
 
 ```toml
 [rag]
 api_key = "..."               # 仍需智谱 key：embedding 由智谱生成
 vector_db = "qdrant"          # 留空则走原来的 JSON 缓存
-qdrant_path = "~/.kama/qdrant"   # local mode；上服务则改 qdrant_url = "http://host:6333"
+qdrant_path = "~/.claudedock/qdrant"   # local mode；上服务则改 qdrant_url = "http://host:6333"
 ```
 
 ### 5.3 可靠触发 RAG：三层干预机制
@@ -323,7 +323,7 @@ else:
     queries = [base]
 ```
 
-配置键：`query_enhance_enabled`（bool，默认 `false`）、`query_expand_n`（int>0，默认 `3`）、`query_depth`（int>0，默认 `10`）。环境变量：`KAMA_RAG_QUERY_ENHANCE`、`KAMA_RAG_QUERY_EXPAND_N`、`KAMA_RAG_QUERY_DEPTH`。
+配置键：`query_enhance_enabled`（bool，默认 `false`）、`query_expand_n`（int>0，默认 `3`）、`query_depth`（int>0，默认 `10`）。环境变量：`CLAUDEDOCK_RAG_QUERY_ENHANCE`、`CLAUDEDOCK_RAG_QUERY_EXPAND_N`、`CLAUDEDOCK_RAG_QUERY_DEPTH`。
 
 ```toml
 [rag]
@@ -378,8 +378,8 @@ User: 这个项目的配置优先级是怎样的？
 Agent: [调用 rag_search(query="配置优先级 config 优先级")]
 
 ToolResult:
-[1] /home/user/.kama/knowledge/kama_config.md
-五层优先级：built-in defaults → 全局 ~/.kama/config.toml → 项目本地 .kama/config.toml → .env → env vars。
+[1] /home/user/.claudedock/knowledge/claudedock_config.md
+五层优先级：built-in defaults → 全局 ~/.claudedock/config.toml → 项目本地 .claudedock/config.toml → .env → env vars。
 未知 key 会导致 SystemExit。
 ...
 
@@ -397,7 +397,7 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 
 ## 8. MCP 替代方案（升级路径）
 
-若需要**语义检索**（embedding + 向量库），不改任何代码即可走既有 MCP 通道——KamaClaude 的 `McpServerManager` + `McpTool` 已完整支持 stdio/tcp 两类 transport。做法：
+若需要**语义检索**（embedding + 向量库），不改任何代码即可走既有 MCP 通道——ClaudeDock 的 `McpServerManager` + `McpTool` 已完整支持 stdio/tcp 两类 transport。做法：
 
 1. 准备一个暴露 `search` / `query` 工具的向量检索 MCP server（如基于 `chromadb`、`qdrant` 或 OpenAI/本地 embedding 的封装）。
 2. 在 `config.toml` 的 `[mcp]` 段注册它：
@@ -444,17 +444,17 @@ Agent: （据实说明知识库中没有相关内容，而非编造）
 
 | 文件 | 变更 |
 |------|------|
-| `src/kama_claude/core/rag/__init__.py` | 新增，导出模块 |
-| `src/kama_claude/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（值类型推断，§5.3） |
-| `src/kama_claude/core/rag/filter.py` | 新增，`MetaValue` 类型 + `matches`/`is_range`/`canonical` 过滤匹配原语 |
-| `src/kama_claude/core/rag/query.py` | 新增，`optimize_query`/`parse_query_list` + `LlmQueryProcessor`（查询改写+拓展，§5.4） |
-| `src/kama_claude/core/rag/index.py` | `rrf_fuse()` 抽为共享纯函数，`HybridIndex` 复用（§5.4） |
-| `src/kama_claude/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 倒排索引过滤 + 多查询 RRF 融合（§5.4） |
-| `src/kama_claude/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2，含元数据 payload + 服务端过滤下推） |
-| `src/kama_claude/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表/示例 + `filter` 参数） |
-| `src/kama_claude/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `KAMA_RAG_*` 环境变量 |
-| `src/kama_claude/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |
-| `src/kama_claude/core/context.py` | 新增 `rag_instruction`/`rag_manifest` 字段并注入系统提示（§5.3） |
+| `src/claudedock/core/rag/__init__.py` | 新增，导出模块 |
+| `src/claudedock/core/rag/chunk.py` | 新增，语义切片 + `extract_topics`（主题提取）+ `parse_frontmatter`（值类型推断，§5.3） |
+| `src/claudedock/core/rag/filter.py` | 新增，`MetaValue` 类型 + `matches`/`is_range`/`canonical` 过滤匹配原语 |
+| `src/claudedock/core/rag/query.py` | 新增，`optimize_query`/`parse_query_list` + `LlmQueryProcessor`（查询改写+拓展，§5.4） |
+| `src/claudedock/core/rag/index.py` | `rrf_fuse()` 抽为共享纯函数，`HybridIndex` 复用（§5.4） |
+| `src/claudedock/core/rag/store.py` | 新增，`RagStore` + 分块/索引 + `manifest()` + `metadata_manifest()` + 倒排索引过滤 + 多查询 RRF 融合（§5.4） |
+| `src/claudedock/core/rag/vector_db.py` | 新增，`QdrantIndex`（可选向量库后端，§5.2，含元数据 payload + 服务端过滤下推） |
+| `src/claudedock/core/rag/tool.py` | 新增，`RagSearchTool`（description 注入清单/词汇表/示例 + `filter` 参数） |
+| `src/claudedock/core/config.py` | 新增 `RagConfig` + `[rag]` TOML 段 + `CLAUDEDOCK_RAG_*` 环境变量 |
+| `src/claudedock/core/runner.py` | `_build_registry` 注册 `rag_search` + `_get_rag_store` 惰性缓存 + 注入 RAG 指令/清单 |
+| `src/claudedock/core/context.py` | 新增 `rag_instruction`/`rag_manifest` 字段并注入系统提示（§5.3） |
 | `tests/unit/test_rag.py` | 新增，覆盖分词/分块/建索引/检索/工具/主题清单/过滤 |
 | `tests/unit/test_rag_query.py` | 新增，覆盖查询优化/解析/RRF 融合/LLM 查询处理器回退（§5.4） |
 | `docs/rag.md` | 本设计文档 |

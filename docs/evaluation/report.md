@@ -1,4 +1,4 @@
-# KamaClaude Agent 评测报告（S7 · 2026-09-17）
+# ClaudeDock Agent 评测报告（S7 · 2026-09-17）
 
 > 评分依据：`docs/evaluation/rubric.md`
 > 评测方式：代码静态审阅 + 单元测试运行 + 评测体系落地现状盘点（本次评测基于证据，非 agent 自评）。
@@ -44,7 +44,7 @@
 |---|---|---:|---|
 | 可观测性原料 | 40 | 34 | `events.jsonl` 已覆盖 Run/Step/ToolCall/LlmUsage/Permission/Subagent/Skill 全量，`ToolCallFailedEvent` 带 `attempt`；扣 6 分因工具结果正文未结构化落盘（仅 `output` 字段） |
 | 轨迹校验器（三类约束） | 30 | 0 | 未实现 `TrajectoryValidator`；`tests/integration/test_run_e2e.py` 里是手写事件断言，无 must_include/forbidden/ordering 通用约束 |
-| 负向指标聚合 | 30 | 6 | 无效/重复调用、Token、耗时原料在事件里可算，但无聚合器；`kama trace` 仅逐条展示 |
+| 负向指标聚合 | 30 | 6 | 无效/重复调用、Token、耗时原料在事件里可算，但无聚合器；`claudedock trace` 仅逐条展示 |
 
 **轨迹层改进意见**：
 
@@ -76,7 +76,7 @@
 
 | 子项 | 权重 | 得分 | 证据与说明 |
 |---|---|---:|---|
-| 遥测采集 | 35 | 30 | trace/events/logs 三路采集 + `kama trace` 查看器（含 latency/usage 摘要）；扣 5 分因 `trace.include_llm_payload` 默认 true，完整 LLM payload 落盘**未去敏**，有隐私风险 |
+| 遥测采集 | 35 | 30 | trace/events/logs 三路采集 + `claudedock trace` 查看器（含 latency/usage 摘要）；扣 5 分因 `trace.include_llm_payload` 默认 true，完整 LLM payload 落盘**未去敏**，有隐私风险 |
 | 业务指标聚合 | 35 | 0 | 无任务解决率 / 人工接管率 / 延迟 P50/P90/P99 / Token 成本 / 稳定性聚合 |
 | 安全硬门禁 ★ | 30 | 0 / **FAIL** | 无未授权调用率 / 敏感泄露率 / 注入成功率 / 越权读取率监控；`read_file` 越权（见 §1）叠加无监控 = 安全红灯 |
 

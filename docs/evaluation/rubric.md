@@ -1,4 +1,4 @@
-# KamaClaude Agent 评测评分细则（Rubric v1）
+# ClaudeDock Agent 评测评分细则（Rubric v1）
 
 > 适用范围：S7 分支（Subagents / Skills / MCP / Multi-agent）
 > 配套文档：`docs/agent_evaluation_plan.md`（评测体系）、`docs/evaluation/report.md`（本次评测分数与改进意见）
@@ -136,7 +136,7 @@
 | 档位 | 锚点 | 得分 |
 |---|---|---|
 | 满档 | trace/events/logs 三路采集 + 可查询视图 + 隐私去敏 | 35 |
-| 部分 | 三路采集齐 + `kama trace` 查看器，但 `include_llm_payload` 默认开、未去敏 | 30 |
+| 部分 | 三路采集齐 + `claudedock trace` 查看器，但 `include_llm_payload` 默认开、未去敏 | 30 |
 | 低档 | 无遥测 | 0 |
 
 ### 4.2 业务指标聚合（35 分）
@@ -161,7 +161,7 @@
 
 | 维度 | 证据 |
 |---|---|
-| 工具行为 | `src/kama_claude/core/tools/`、`subagent/tool.py`、`mcp/tool.py`；`tests/unit/test_builtin_tools.py`、`test_invocation.py`、`test_tool_retry.py` 等 |
+| 工具行为 | `src/claudedock/core/tools/`、`subagent/tool.py`、`mcp/tool.py`；`tests/unit/test_builtin_tools.py`、`test_invocation.py`、`test_tool_retry.py` 等 |
 | 权限 | `core/permissions/{policy,manager}.py`；`DEFAULT_POLICIES` 中 `read_file=ALLOW`、`list_dir=ALLOW` |
 | 轨迹原料 | `core/bus/events.py`（Event 判别联合）、`core/events/writer.py` |
 | 遥测 | `core/trace/{record,provider,writer}.py`、`cli/commands/trace.py` |

@@ -5,12 +5,12 @@ import asyncio
 import pytest
 from pydantic import BaseModel
 
-from kama_claude.core.context import ExecutionContext
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import LlmResponse, ToolCallBlock
-from kama_claude.core.loop import AgentLoop
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.context import ExecutionContext
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import LlmResponse, ToolCallBlock
+from claudedock.core.loop import AgentLoop
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.registry import ToolRegistry
 from tests.security_helpers import approving_manager
 
 # --- stubs -------------------------------------------------------------------

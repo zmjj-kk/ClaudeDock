@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kama_claude.core.bus.events import LlmTokenEvent, RunStartedEvent, ToolCallFinishedEvent
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.session.memory import SessionNoteState, SessionNoteStore
-from kama_claude.core.session.memory_service import SessionMemoryService
+from claudedock.core.bus.events import LlmTokenEvent, RunStartedEvent, ToolCallFinishedEvent
+from claudedock.core.events.bus import EventBus
+from claudedock.core.session.memory import SessionNoteState, SessionNoteStore
+from claudedock.core.session.memory_service import SessionMemoryService
 
 
 # 功能：验证陈旧后台笔记无法覆盖较新版本

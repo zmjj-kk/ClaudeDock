@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kama_claude.core.compact.compactor import Compactor
-from kama_claude.core.context import ExecutionBudget, ExecutionContext, current_budget
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.governed import BudgetExceeded
-from kama_claude.core.llm.types import LlmResponse, UsageStats
+from claudedock.core.compact.compactor import Compactor
+from claudedock.core.context import ExecutionBudget, ExecutionContext, current_budget
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.governed import BudgetExceeded
+from claudedock.core.llm.types import LlmResponse, UsageStats
 
 SUMMARY = "\n".join(
     f"## {index}. {title}\nNone"

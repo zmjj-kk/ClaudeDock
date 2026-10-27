@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kama_claude.core.context_sources.loader import InstructionLoader
+from claudedock.core.context_sources.loader import InstructionLoader
 
 
 # 功能：验证来源哈希、内容去重与目录规则只在目标目录加载

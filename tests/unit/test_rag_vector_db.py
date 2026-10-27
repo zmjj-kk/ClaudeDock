@@ -5,8 +5,8 @@ from pathlib import Path
 
 import httpx
 
-from kama_claude.core.rag.index import ZhipuEmbeddingIndex
-from kama_claude.core.rag.vector_db import QdrantIndex
+from claudedock.core.rag.index import ZhipuEmbeddingIndex
+from claudedock.core.rag.vector_db import QdrantIndex
 
 
 # 构造用 MockTransport 返回确定性向量的智谱 embedding，供 QdrantIndex 复用

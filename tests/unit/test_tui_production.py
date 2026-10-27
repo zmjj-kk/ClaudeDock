@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
-from kama_claude.core.transport.socket_client import IpcError
-from kama_claude.tui.app import KamaTuiApp, PermissionBlock, PermissionSelect
+from claudedock.core.transport.socket_client import IpcError
+from claudedock.tui.app import ClaudeDockTuiApp, PermissionBlock, PermissionSelect
 
 
 class Client:
@@ -50,7 +50,7 @@ class Client:
 # 功能：Ctrl+C 在任务运行中取消当前 Run，界面保持打开并恢复输入
 # 设计：使用 Textual Pilot 实际按键，而不是直接调用 action，覆盖绑定优先级和消息泵
 async def test_tui_ctrl_c_cancels_without_quitting(monkeypatch):
-    app = KamaTuiApp("localhost", 1)
+    app = ClaudeDockTuiApp("localhost", 1)
     monkeypatch.setattr(app, "_socket_loop", AsyncMock())
     client = Client(app)
     app._client = client
@@ -74,7 +74,7 @@ async def test_tui_ctrl_c_cancels_without_quitting(monkeypatch):
 # 功能：真实审批控件响应快捷键，当前参数的会话授权文案与服务端语义一致
 # 设计：挂载审批事件后按 a，通过客户端请求确认精确决策并检查控件被回收
 async def test_tui_permission_keyboard_and_scope(monkeypatch):
-    app = KamaTuiApp("localhost", 1)
+    app = ClaudeDockTuiApp("localhost", 1)
     monkeypatch.setattr(app, "_socket_loop", AsyncMock())
     client = Client(app)
     app._client = client
@@ -112,7 +112,7 @@ async def test_tui_permission_keyboard_and_scope(monkeypatch):
 # 功能：重放的历史审批请求不能再次生成可操作审批控件
 # 设计：对同一工具 ID 发送历史与重复实时事件，确保前端不出现竞争审批
 async def test_tui_replayed_approval_is_not_actionable(monkeypatch):
-    app = KamaTuiApp("localhost", 1)
+    app = ClaudeDockTuiApp("localhost", 1)
     monkeypatch.setattr(app, "_socket_loop", AsyncMock())
     async with app.run_test() as pilot:
         event = {

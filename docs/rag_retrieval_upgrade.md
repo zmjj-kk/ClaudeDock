@@ -1,6 +1,6 @@
 # RAG 检索升级：TF-IDF → BM25 + 混合检索
 
-本文记录本次对 KamaClaude 本地知识库检索（`src/kama_claude/core/rag/`）的改进，含关键代码示例与验证结果。
+本文记录本次对 ClaudeDock 本地知识库检索（`src/claudedock/core/rag/`）的改进，含关键代码示例与验证结果。
 
 ## 一、概述
 
@@ -167,11 +167,11 @@ retriever: str = "auto"   # 检索后端：auto/bm25/embedding/hybrid
 取值校验（TOML 与 env 共用 `_RETRIEVER_CHOICES = ("auto", "bm25", "embedding", "hybrid")`）：
 
 ```python
-rag_retriever = os.environ.get("KAMA_RAG_RETRIEVER")
+rag_retriever = os.environ.get("CLAUDEDOCK_RAG_RETRIEVER")
 if rag_retriever is not None:
     if rag_retriever not in _RETRIEVER_CHOICES:
         raise SystemExit(
-            "Config error: KAMA_RAG_RETRIEVER must be one of "
+            "Config error: CLAUDEDOCK_RAG_RETRIEVER must be one of "
             f"{list(_RETRIEVER_CHOICES)}, got: {rag_retriever!r}"
         )
     config.rag.retriever = rag_retriever
@@ -223,14 +223,14 @@ async def _get_rag_store(self) -> RagStore:
 
 ```bash
 # 环境变量
-KAMA_RAG_RETRIEVER=hybrid     # auto / bm25 / embedding / hybrid
+CLAUDEDOCK_RAG_RETRIEVER=hybrid     # auto / bm25 / embedding / hybrid
 
 # 或 config.toml
 [rag]
 retriever = "hybrid"
 ```
 
-- `auto`（默认）：配了 `KAMA_RAG_API_KEY` → 混合检索；没配 → 纯 BM25。
+- `auto`（默认）：配了 `CLAUDEDOCK_RAG_API_KEY` → 混合检索；没配 → 纯 BM25。
 - `bm25`：纯词法，零依赖。
 - `embedding`：纯语义（原行为）。
 - `hybrid`：BM25 + embedding，RRF 融合（推荐）。
@@ -239,7 +239,7 @@ retriever = "hybrid"
 
 ## 五、附带修复 1：`rag_search` 权限默认放行
 
-`rag_search` 之前未登记在 `DEFAULT_POLICIES`，被当作「未知工具」走 ASK；而 `kama run` 不订阅/应答权限审批，导致每次调用挂起 60s 超时后拒绝，RAG 实际不可用（这也是实测 142s 慢跑的根因）。
+`rag_search` 之前未登记在 `DEFAULT_POLICIES`，被当作「未知工具」走 ASK；而 `claudedock run` 不订阅/应答权限审批，导致每次调用挂起 60s 超时后拒绝，RAG 实际不可用（这也是实测 142s 慢跑的根因）。
 
 ```python
 DEFAULT_POLICIES: dict[str, ToolPolicy] = {
@@ -252,16 +252,16 @@ DEFAULT_POLICIES: dict[str, ToolPolicy] = {
 }
 ```
 
-修复后 `rag_search` 与 `read_file`/`list_dir` 一样只读放行，`kama run` 实测从 142s 降到 11.9s。
+修复后 `rag_search` 与 `read_file`/`list_dir` 一样只读放行，`claudedock run` 实测从 142s 降到 11.9s。
 
 ---
 
 ## 六、附带修复 2：配置层数文档同步（四层 → 五层）
 
-代码实际是**五层**配置优先级（默认值 → 全局 TOML → 项目本地 TOML → `.env` → 环境变量），但文档写的是「四层」，漏掉了「项目本地 `.kama/config.toml`」。已同步修正：
+代码实际是**五层**配置优先级（默认值 → 全局 TOML → 项目本地 TOML → `.env` → 环境变量），但文档写的是「四层」，漏掉了「项目本地 `.claudedock/config.toml`」。已同步修正：
 
 - `CLAUDE.md` / `AGENT.md` / `docs/architecture.md` / `docs/rag.md`
-- `~/.kama/knowledge/architecture.md`（RAG 读取的副本，已删除旧索引缓存待重建）
+- `~/.claudedock/knowledge/architecture.md`（RAG 读取的副本，已删除旧索引缓存待重建）
 
 ---
 

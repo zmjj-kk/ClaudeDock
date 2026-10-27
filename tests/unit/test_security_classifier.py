@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from kama_claude.core.permissions.policy import PermissionDecision
-from kama_claude.core.security.classifier import RiskClassifier
+from claudedock.core.permissions.policy import PermissionDecision
+from claudedock.core.security.classifier import RiskClassifier
 
 
 # 功能：验证畸形、注入、额外字段和阶段错配输出全部回退人工审批

@@ -8,33 +8,33 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kama_claude.core.bus.events import RunStartedEvent
-from kama_claude.core.config import KamaConfig
-from kama_claude.core.context import ExecutionContext
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.events.writer import EventWriter
-from kama_claude.core.llm.types import LlmResponse, ToolCallBlock, UsageStats
-from kama_claude.core.loop import AgentLoop
-from kama_claude.core.memory.model import MemoryEntry
-from kama_claude.core.memory.sqlite_store import MemorySqliteStore
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.rag.index import Bm25Index
-from kama_claude.core.rag.store import RagStore
-from kama_claude.core.runner import AgentRunner
-from kama_claude.core.security.redaction import redact
-from kama_claude.core.session.model import Session
-from kama_claude.core.session.store import SessionStore
-from kama_claude.core.storage import atomic_write
-from kama_claude.core.supervisor import RunSupervisor
-from kama_claude.core.task.manager import TaskManager
-from kama_claude.core.tools.builtin.bash import BashTool
-from kama_claude.core.tools.paths import resolve_inside
-from kama_claude.core.tools.registry import ToolRegistry
-from kama_claude.core.trace.record import TraceRecord
-from kama_claude.core.trace.writer import TraceWriter
-from kama_claude.core.transport.ipc_broadcaster import IpcEventBroadcaster
-from kama_claude.core.transport.socket_client import SocketClient
-from kama_claude.core.transport.socket_server import SocketServer, _writer_var
+from claudedock.core.bus.events import RunStartedEvent
+from claudedock.core.config import ClaudeDockConfig
+from claudedock.core.context import ExecutionContext
+from claudedock.core.events.bus import EventBus
+from claudedock.core.events.writer import EventWriter
+from claudedock.core.llm.types import LlmResponse, ToolCallBlock, UsageStats
+from claudedock.core.loop import AgentLoop
+from claudedock.core.memory.model import MemoryEntry
+from claudedock.core.memory.sqlite_store import MemorySqliteStore
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.rag.index import Bm25Index
+from claudedock.core.rag.store import RagStore
+from claudedock.core.runner import AgentRunner
+from claudedock.core.security.redaction import redact
+from claudedock.core.session.model import Session
+from claudedock.core.session.store import SessionStore
+from claudedock.core.storage import atomic_write
+from claudedock.core.supervisor import RunSupervisor
+from claudedock.core.task.manager import TaskManager
+from claudedock.core.tools.builtin.bash import BashTool
+from claudedock.core.tools.paths import resolve_inside
+from claudedock.core.tools.registry import ToolRegistry
+from claudedock.core.trace.record import TraceRecord
+from claudedock.core.trace.writer import TraceWriter
+from claudedock.core.transport.ipc_broadcaster import IpcEventBroadcaster
+from claudedock.core.transport.socket_client import SocketClient
+from claudedock.core.transport.socket_server import SocketServer, _writer_var
 
 
 # 创建一个只返回固定响应的模型，完全禁止外部 API 依赖
@@ -263,7 +263,7 @@ async def test_runner_persists_compacted_history(tmp_path, monkeypatch):
         context.mark_success()
 
     monkeypatch.setattr(AgentLoop, "run", compact_run)
-    runner = AgentRunner(KamaConfig(), provider=Provider([]))
+    runner = AgentRunner(ClaudeDockConfig(), provider=Provider([]))
     await runner.run_and_capture("goal", session=session, store=store)
     assert SessionStore(tmp_path / "sessions").read_messages("sess") == [
         {"role": "user", "content": "summary"},

@@ -1,6 +1,6 @@
-# KamaClaude 快速开始
+# ClaudeDock 快速开始
 
-本指南将帮助你在 5 分钟内启动并运行 KamaClaude。
+本指南将帮助你在 5 分钟内启动并运行 ClaudeDock。
 
 ## 前置要求
 
@@ -30,8 +30,8 @@ uv --version  # 应输出 ≥ 0.4
 ### 2. 克隆项目
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/KamaClaude.git
-cd KamaClaude
+git clone https://github.com/YOUR_USERNAME/ClaudeDock.git
+cd ClaudeDock
 ```
 
 ### 3. 安装依赖
@@ -61,24 +61,24 @@ ANTHROPIC_API_KEY=sk-ant-your-api-key-here
 
 **可选配置**：
 ```bash
-KAMA_PORT=7437              # 守护进程端口
-KAMA_LOG_LEVEL=INFO         # 日志级别
-KAMA_LLM_DEFAULT_MODEL=claude-sonnet-4-6  # 默认模型
+CLAUDEDOCK_PORT=7437              # 守护进程端口
+CLAUDEDOCK_LOG_LEVEL=INFO         # 日志级别
+CLAUDEDOCK_LLM_DEFAULT_MODEL=claude-sonnet-4-6  # 默认模型
 ```
 
 ### 5. 启动守护进程
 
 ```bash
 # 前台启动（查看日志）
-uv run kama-core
+uv run claudedock-core
 
 # 或后台启动
-uv run kama-core &
+uv run claudedock-core &
 ```
 
 看到以下输出表示启动成功：
 ```
-level=INFO ts=2024-10-09T10:00:00 source=kama_claude.core.app msg="Server started on 127.0.0.1:7437"
+level=INFO ts=2024-10-09T10:00:00 source=claudedock.core.app msg="Server started on 127.0.0.1:7437"
 ```
 
 ### 6. 验证连接
@@ -87,22 +87,22 @@ level=INFO ts=2024-10-09T10:00:00 source=kama_claude.core.app msg="Server starte
 
 ```bash
 # 测试连通性
-uv run kama ping
+uv run claudedock ping
 # 输出: {"status": "ok", "server_version": "0.0.1", ...}
 
 # 查看版本
-uv run kama --version
-# 输出: KamaClaude 0.0.1
+uv run claudedock --version
+# 输出: 0.0.1
 ```
 
 ---
 
 ## 使用 TUI（推荐）
 
-KamaClaude 的主要用户界面是 TUI（Terminal UI）：
+ClaudeDock 的主要用户界面是 TUI（Terminal UI）：
 
 ```bash
-uv run kama-tui
+uv run claudedock-tui
 ```
 
 **快捷键**：
@@ -117,7 +117,7 @@ uv run kama-tui
 ### 使用 TUI
 
 ```bash
-uv run kama-tui
+uv run claudedock-tui
 ```
 
 输入：
@@ -130,7 +130,7 @@ LLM 将自动调用 `list_dir` 工具并返回结果。
 ### 使用 CLI（快速测试）
 
 ```bash
-uv run kama run "列出当前目录的文件"
+uv run claudedock run --goal "列出当前目录的文件"
 ```
 
 ---
@@ -140,17 +140,17 @@ uv run kama run "列出当前目录的文件"
 如果你更喜欢容器化部署：
 
 ```bash
-# 启动所有服务（kama-core + Qdrant）
-docker-compose up -d
+# 启动所有服务（claudedock-core + Qdrant）
+docker compose up -d
 
 # 查看日志
-docker-compose logs -f kama-core
+docker compose logs -f claudedock-core
 
 # 测试连接
-docker exec kama-core kama ping
+docker compose exec claudedock-core claudedock ping
 
 # 停止服务
-docker-compose down
+docker compose down
 ```
 
 ---
@@ -161,8 +161,8 @@ docker-compose down
 
 **解决方法 1**：更改端口
 ```bash
-export KAMA_PORT=8000
-uv run kama-core
+export CLAUDEDOCK_PORT=8000
+uv run claudedock-core
 ```
 
 **解决方法 2**：停止占用端口的进程
@@ -179,7 +179,7 @@ kill -9 <PID>
 确保你已经：
 1. 复制了 `.env.example` 到 `.env`
 2. 在 `.env` 中填入了有效的 API key
-3. 启动 `kama-core` 时加载了 `.env`（自动加载）
+3. 启动 `claudedock-core` 时加载了 `.env`（自动加载）
 
 ### Q: 权限请求如何响应？
 
@@ -200,10 +200,10 @@ Command: ls -la
 
 ```bash
 # 启用 DEBUG 级别日志
-KAMA_LOG_LEVEL=DEBUG uv run kama-core
+CLAUDEDOCK_LOG_LEVEL=DEBUG uv run claudedock-core
 
 # 或写入文件
-KAMA_LOG_FILE=~/.kama/logs/debug.log uv run kama-core
+CLAUDEDOCK_LOG_FILE=~/.claudedock/logs/debug.log uv run claudedock-core
 ```
 
 ---
@@ -218,8 +218,8 @@ KAMA_LOG_FILE=~/.kama/logs/debug.log uv run kama-core
 
 ## 获取帮助
 
-- 🐛 遇到问题？[提交 Issue](https://github.com/YOUR_USERNAME/KamaClaude/issues)
-- 💬 技术讨论？[加入 Discussions](https://github.com/YOUR_USERNAME/KamaClaude/discussions)
+- 🐛 遇到问题？[提交 Issue](https://github.com/YOUR_USERNAME/ClaudeDock/issues)
+- 💬 技术讨论？[加入 Discussions](https://github.com/YOUR_USERNAME/ClaudeDock/discussions)
 - 📧 安全问题？发送邮件至 security@example.com
 
 祝使用愉快！🎉

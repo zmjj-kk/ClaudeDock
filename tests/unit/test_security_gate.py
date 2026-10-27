@@ -7,18 +7,18 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.permissions.policy import PermissionDecision, ToolPolicy
-from kama_claude.core.permissions.rules import Rule
-from kama_claude.core.security.context import SecurityContext
-from kama_claude.core.security.gate import SecurityGate
-from kama_claude.core.tools.builtin.read_file import ReadFileTool
-from kama_claude.core.tools.builtin.write_file import WriteFileTool
-from kama_claude.core.tools.invocation import invoke_tool
-from kama_claude.core.tools.paths import resolve_inside
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.permissions.policy import PermissionDecision, ToolPolicy
+from claudedock.core.permissions.rules import Rule
+from claudedock.core.security.context import SecurityContext
+from claudedock.core.security.gate import SecurityGate
+from claudedock.core.tools.builtin.read_file import ReadFileTool
+from claudedock.core.tools.builtin.write_file import WriteFileTool
+from claudedock.core.tools.invocation import invoke_tool
+from claudedock.core.tools.paths import resolve_inside
+from claudedock.core.tools.registry import ToolRegistry
 
 
 # 构造与真实审批管理器一致的受信不可变上下文
@@ -88,7 +88,7 @@ async def test_plan_read_only(tmp_path: Path) -> None:
 # 功能：验证敏感路径、别名与硬链接均不能通过只读或写入工具访问
 # 设计：构造真实符号链接与硬链接，覆盖规范化前后路径检查
 @pytest.mark.parametrize(
-    "target", [".git/config", ".env", ".kama/checkpoint.json", "secret.pem", "CLAUDE.md"]
+    "target", [".git/config", ".env", ".claudedock/checkpoint.json", "secret.pem", "CLAUDE.md"]
 )
 def test_protected_paths(tmp_path: Path, target: str) -> None:
     assert resolve_inside(tmp_path, target).path is None

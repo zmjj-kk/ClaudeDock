@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kama_claude.core.config import McpServerConfig
-from kama_claude.core.mcp.client import McpClient
-from kama_claude.core.mcp.server import McpServerManager
+from claudedock.core.config import McpServerConfig
+from claudedock.core.mcp.client import McpClient
+from claudedock.core.mcp.server import McpServerManager
 
 
 # 功能：start_all 遇重复 server name 应跳过，避免覆盖已连接的同名 client
@@ -48,7 +48,7 @@ async def test_connect_passes_read_timeout(monkeypatch: pytest.MonkeyPatch) -> N
         async def connect_stdio(self, *args: object, **kwargs: object) -> None:
             return None
 
-    monkeypatch.setattr("kama_claude.core.mcp.server.McpClient", _Stub)
+    monkeypatch.setattr("claudedock.core.mcp.server.McpClient", _Stub)
     monkeypatch.setattr("shutil.which", lambda command: "/usr/bin/" + command)
     mgr = McpServerManager()
     await mgr._connect(McpServerConfig(name="x", command="echo", read_timeout=90.0))

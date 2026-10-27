@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-from kama_claude.core.config import MemoryConfig
-from kama_claude.core.llm.types import LlmResponse, UsageStats
-from kama_claude.core.memory.consolidator import _MAX_REVIEW, Consolidator, _parse_plan
-from kama_claude.core.memory.model import MemoryEntry
+from claudedock.core.config import MemoryConfig
+from claudedock.core.llm.types import LlmResponse, UsageStats
+from claudedock.core.memory.consolidator import _MAX_REVIEW, Consolidator, _parse_plan
+from claudedock.core.memory.model import MemoryEntry
 
 
 def _entries() -> list[MemoryEntry]:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from kama_claude.core.config import RagConfig
-from kama_claude.core.rag.factory import _build_reranker, build_index, build_store
-from kama_claude.core.rag.index import Bm25Index, HybridIndex, ZhipuEmbeddingIndex
-from kama_claude.core.rag.rerank import ZhipuReranker
+from claudedock.core.config import RagConfig
+from claudedock.core.rag.factory import _build_reranker, build_index, build_store
+from claudedock.core.rag.index import Bm25Index, HybridIndex, ZhipuEmbeddingIndex
+from claudedock.core.rag.rerank import ZhipuReranker
 
 
 # 功能：验证 build_index 按 retriever 显式指定返回对应后端类型

@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from kama_claude.core.rag import rerank
-from kama_claude.core.rag.rerank import ZhipuReranker
+from claudedock.core.rag import rerank
+from claudedock.core.rag.rerank import ZhipuReranker
 
 
 # 功能：验证完整且乱序的 rerank 结果按 index 映射回输入顺序

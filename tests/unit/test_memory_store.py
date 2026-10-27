@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from kama_claude.core.config import MemoryConfig
-from kama_claude.core.llm.types import LlmResponse, UsageStats
-from kama_claude.core.memory.sqlite_store import MemorySqliteStore
-from kama_claude.core.memory.store import MemoryStore
-from kama_claude.core.memory.vector_store import MemoryVectorStore
-from kama_claude.core.rag.index import Bm25Index
+from claudedock.core.config import MemoryConfig
+from claudedock.core.llm.types import LlmResponse, UsageStats
+from claudedock.core.memory.sqlite_store import MemorySqliteStore
+from claudedock.core.memory.store import MemoryStore
+from claudedock.core.memory.vector_store import MemoryVectorStore
+from claudedock.core.rag.index import Bm25Index
 
 
 # 组装带双层存储的 MemoryStore，sqlite 与向量各自可独立引用，供断言内部状态

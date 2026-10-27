@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.compact.projection import ProjectionStore
-from kama_claude.core.session.store import SessionStore
+from claudedock.core.compact.projection import ProjectionStore
+from claudedock.core.session.store import SessionStore
 
 
 # 功能：验证重复压缩保留完整历史，重启只恢复最新投影与新消息

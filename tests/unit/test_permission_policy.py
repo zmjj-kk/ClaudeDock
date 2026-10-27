@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from kama_claude.core.permissions.policy import (
+from claudedock.core.permissions.policy import (
     PermissionDecision,
     ToolPolicy,
     evaluate,
@@ -130,7 +130,7 @@ def test_safe_tools_default_allow() -> None:
 
 # 功能：验证 rag_search 只读检索工具默认放行
 # 设计：rag_search 与 read_file/list_dir 同为只读工具，若落入未知工具 ASK 兜底，
-#       在 kama run 无人应答审批时会被 60s 超时拒掉，导致 RAG 完全不可用
+#       在 claudedock run 无人应答审批时会被 60s 超时拒掉，导致 RAG 完全不可用
 def test_rag_search_default_allow() -> None:
     assert evaluate("rag_search", {"query": "配置优先级"}) == PermissionDecision.ALLOW
 

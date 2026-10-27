@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from kama_claude.core.monitoring import (
+from claudedock.core.monitoring import (
     MetricsCollector,
     async_timed,
     get_collector,

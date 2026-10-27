@@ -5,11 +5,11 @@ import statistics
 import time
 from pathlib import Path
 
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.security.context import SecurityContext
-from kama_claude.core.security.gate import SecurityGate
-from kama_claude.core.tools.builtin.read_file import ReadFileTool
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.security.context import SecurityContext
+from claudedock.core.security.gate import SecurityGate
+from claudedock.core.tools.builtin.read_file import ReadFileTool
 
 
 # 离线测量统一网关纯读取决策开销，不执行工具或调用任何外部模型

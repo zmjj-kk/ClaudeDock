@@ -5,8 +5,8 @@
 
 ## CE-07：有来源的指令快照
 
-instruction_sources_enabled 开启后，读取用户全局 ~/.kama/context.md、
-项目 CLAUDE.md、AGENTS.md、.kama/context.md、CLAUDE.local.md；
+instruction_sources_enabled 开启后，读取用户全局 ~/.claudedock/context.md、
+项目 CLAUDE.md、AGENTS.md、.claudedock/context.md、CLAUDE.local.md；
 InstructionLoader 也支持显式当前目录沿途的目录规则，不递归扫描无关目录。
 导入语法为 @import 相对路径，仅允许 .md/.txt，限制深度、数量、单文件及总字节。
 路径先限定根目录，再从根目录逐级以 openat/O_NOFOLLOW 打开。

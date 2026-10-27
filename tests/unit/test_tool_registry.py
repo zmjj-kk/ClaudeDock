@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.registry import ToolRegistry
 
 
 class _FakeTool(BaseTool):

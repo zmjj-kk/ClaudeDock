@@ -28,7 +28,7 @@
 
 **新增文件**:
 - `Dockerfile` - 多阶段构建镜像
-- `docker-compose.yml` - kama-core + Qdrant 服务编排
+- `docker-compose.yml` - claudedock-core + Qdrant 服务编排
 - `.dockerignore` - 优化构建上下文
 
 **功能**:
@@ -74,10 +74,10 @@
 ### 5. 异常体系重构
 
 **新增文件**:
-- `src/kama_claude/core/errors.py` - 统一异常层次
+- `src/claudedock/core/errors.py` - 统一异常层次
 
 **新增异常类**:
-- `KamaError` (基类)
+- `ClaudeDockError` (基类)
 - `ConfigurationError`, `InitializationError`
 - `LLMError` 系列 (Connection, Auth, RateLimit, Response)
 - `ToolError` 系列 (NotFound, Execution, Validation, Timeout)
@@ -94,7 +94,7 @@
 ### 6. 结构化日志增强
 
 **修改文件**:
-- `src/kama_claude/core/logging_setup.py` - 新增结构化日志
+- `src/claudedock/core/logging_setup.py` - 新增结构化日志
 
 **新增功能**:
 - ✅ `StructuredFormatter` - JSON 格式化器
@@ -150,9 +150,9 @@ make verify-s0         # CI 验证
 ### 9. 性能监控与追踪
 
 **新增文件**:
-- `src/kama_claude/core/monitoring/__init__.py`
-- `src/kama_claude/core/monitoring/metrics.py` - 指标收集器
-- `src/kama_claude/core/monitoring/otel.py` - OpenTelemetry 集成
+- `src/claudedock/core/monitoring/__init__.py`
+- `src/claudedock/core/monitoring/metrics.py` - 指标收集器
+- `src/claudedock/core/monitoring/otel.py` - OpenTelemetry 集成
 
 **功能**:
 - ✅ `MetricsCollector` - 计时器、计数器、直方图
@@ -167,10 +167,10 @@ make verify-s0         # CI 验证
 ### 10. 安全加固
 
 **新增文件**:
-- `src/kama_claude/core/security/__init__.py`
-- `src/kama_claude/core/security/path_validator.py` - 路径验证
-- `src/kama_claude/core/security/secrets.py` - 密钥管理
-- `src/kama_claude/core/security/audit.py` - 审计日志
+- `src/claudedock/core/security/__init__.py`
+- `src/claudedock/core/security/path_validator.py` - 路径验证
+- `src/claudedock/core/security/secrets.py` - 密钥管理
+- `src/claudedock/core/security/audit.py` - 审计日志
 
 **功能**:
 - ✅ `PathValidator` - 防止路径遍历攻击
@@ -317,7 +317,7 @@ make verify-s0         # CI 验证
 
 ## 致谢
 
-本次改进基于对 KamaClaude 项目的全面分析（113 个 Python 文件，9000+ 行代码）完成。
+本次改进基于对 ClaudeDock 项目的全面分析（113 个 Python 文件，9000+ 行代码）完成。
 
 **改进完成时间**: 2024-10-09
 **改进范围**: 11 个改进项（Phase 1-3，除国际化外全部）

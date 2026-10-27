@@ -1,16 +1,16 @@
-# KamaClaude 架构文档
+# ClaudeDock 架构文档
 
-本文档描述 KamaClaude 的整体架构、核心模块和数据流。
+本文档描述 ClaudeDock 的整体架构、核心模块和数据流。
 
 ## 系统概览
 
-KamaClaude 是一个**双进程架构**的本地 AI Agent 系统：
+ClaudeDock 是一个**双进程架构**的本地 AI Agent 系统：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Client Layer                            │
 ├─────────────────┬───────────────────────────────────────────┤
-│   kama (CLI)    │         kama-tui (TUI)                    │
+│   claudedock (CLI)    │         claudedock-tui (TUI)                    │
 │   快速测试/脚本  │         主要用户界面                        │
 └────────┬────────┴──────────┬────────────────────────────────┘
          │                   │
@@ -18,7 +18,7 @@ KamaClaude 是一个**双进程架构**的本地 AI Agent 系统：
          │   (NDJSON/TCP)    │
          v                   v
 ┌─────────────────────────────────────────────────────────────┐
-│              kama-core (Daemon)                             │
+│              claudedock-core (Daemon)                             │
 ├─────────────────────────────────────────────────────────────┤
 │  Session Manager │ LLM Provider │ Tool Registry            │
 │  Permission Mgr  │ Memory Store │ RAG Index                │
@@ -44,7 +44,7 @@ KamaClaude 是一个**双进程架构**的本地 AI Agent 系统：
 
 ## 核心模块
 
-### 1. Protocol Layer (`src/kama_claude/core/bus/`)
+### 1. Protocol Layer (`src/claudedock/core/bus/`)
 
 所有 IPC 消息使用 **Pydantic v2 模型**，通过 `type` 字段实现**判别联合（Discriminated Union）**。
 
@@ -72,7 +72,7 @@ Event = CoreStartedEvent | RunStartedEvent | ...
 make docs  # 生成 WIRE_PROTOCOL.md
 ```
 
-### 2. Transport Layer (`src/kama_claude/core/transport/`)
+### 2. Transport Layer (`src/claudedock/core/transport/`)
 
 - **SocketServer**: 异步 TCP 服务器（`asyncio.start_server`）
 - **协议**: 基于 NDJSON（每行一个 JSON-RPC 请求/响应）
@@ -85,7 +85,7 @@ server.register("core.ping", ping_handler)
 await server.start()  # 监听并处理请求
 ```
 
-### 3. Session Manager (`src/kama_claude/core/session/`)
+### 3. Session Manager (`src/claudedock/core/session/`)
 
 管理多个并发会话，每个会话维护：
 - **消息历史** (`ExecutionContext`)
@@ -99,7 +99,7 @@ session.add_user_message("Hello")
 session.close()
 ```
 
-### 4. LLM Provider (`src/kama_claude/core/llm/`)
+### 4. LLM Provider (`src/claudedock/core/llm/`)
 
 - **AnthropicProvider**: 封装 Anthropic SDK
 - **流式响应**: 支持 SSE 流式输出（通过 EventBus 推送 token 事件）
@@ -113,7 +113,7 @@ response = await provider.chat(
 )
 ```
 
-### 5. Tool System (`src/kama_claude/core/tools/`)
+### 5. Tool System (`src/claudedock/core/tools/`)
 
 **工具注册表** (`ToolRegistry`):
 - 动态注册工具（内置 + MCP）
@@ -127,17 +127,17 @@ response = await provider.chat(
 - `memory_save`, `memory_search`: 长期记忆
 - `task_create`, `task_update`: 任务管理
 
-**MCP 集成** (`src/kama_claude/core/mcp/`):
+**MCP 集成** (`src/claudedock/core/mcp/`):
 - 动态加载 MCP 服务器
-- 工具透明代理（MCP tool → Kama tool）
+- 工具透明代理（MCP tool → ClaudeDock tool）
 
-### 6. Permission System (`src/kama_claude/core/permissions/`)
+### 6. Permission System (`src/claudedock/core/permissions/`)
 
 **四层权限评估**:
 1. **Deny Patterns** (最高优先级)：正则匹配黑名单
 2. **Outside CWD Heuristics**：访问工作区外文件强制询问
 3. **Session Always Cache**：会话内记忆（重启丢失）
-4. **Persistent Always**：跨会话持久化（存储在 `~/.kama/policy.json`）
+4. **Persistent Always**：跨会话持久化（存储在 `~/.claudedock/policy.json`）
 
 ```python
 decision = permission_manager.evaluate(tool_name, params)
@@ -145,7 +145,7 @@ if decision.action == "ask":
     allowed, _ = await permission_manager.check_and_wait(...)
 ```
 
-### 7. Memory System (`src/kama_claude/core/memory/`)
+### 7. Memory System (`src/claudedock/core/memory/`)
 
 **双存储架构**:
 - **SQLite** (`MemorySQLiteStore`): 结构化记忆（元数据查询）
@@ -159,7 +159,7 @@ if decision.action == "ask":
          → 注入到上下文
 ```
 
-### 8. RAG System (`src/kama_claude/core/rag/`)
+### 8. RAG System (`src/claudedock/core/rag/`)
 
 **三层检索**:
 1. **Qdrant 向量检索**：语义相似性
@@ -171,7 +171,7 @@ if decision.action == "ask":
 - LLM 调用 `rag_search` 工具检索
 - 系统提示词强制要求优先检索
 
-### 9. Context Compaction (`src/kama_claude/core/compact/`)
+### 9. Context Compaction (`src/claudedock/core/compact/`)
 
 **压缩策略**:
 - 触发阈值：上下文使用 ≥ 80%
@@ -185,7 +185,7 @@ compactor = Compactor(strategy="adaptive")
 result = await compactor.compact(context, budget=200_000)
 ```
 
-### 10. Event Bus (`src/kama_claude/core/events/`)
+### 10. Event Bus (`src/claudedock/core/events/`)
 
 **发布-订阅模式**:
 - 所有系统事件通过 EventBus 分发
@@ -249,14 +249,14 @@ await bus.publish(RunStartedEvent(run_id="..."))
 ## 配置系统
 
 **五层优先级** (从高到低):
-1. **环境变量** (`KAMA_*`)
+1. **环境变量** (`CLAUDEDOCK_*`)
 2. **`.env` 文件**
-3. **项目配置** (`.kama/config.toml`)
-4. **全局配置** (`~/.kama/config.toml`)
+3. **项目配置** (`.claudedock/config.toml`)
+4. **全局配置** (`~/.claudedock/config.toml`)
 5. **内置默认值**
 
 ```toml
-# ~/.kama/config.toml
+# ~/.claudedock/config.toml
 [server]
 host = "127.0.0.1"
 port = 7437
@@ -282,7 +282,7 @@ default_model = "claude-sonnet-4-6"
 - 审计日志使用 `SecretManager.sanitize()`
 
 ### 3. 审计日志
-- 所有权限决策记录到 `~/.kama/audit.log`
+- 所有权限决策记录到 `~/.claudedock/audit.log`
 - 工具调用记录（JSON Lines 格式）
 
 ---
@@ -304,7 +304,7 @@ default_model = "claude-sonnet-4-6"
 # 启用 OpenTelemetry 导出
 export OTEL_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-uv run kama-core
+uv run claudedock-core
 ```
 
 ---
@@ -314,8 +314,8 @@ uv run kama-core
 ### 添加新工具
 
 ```python
-# src/kama_claude/core/tools/builtin/my_tool.py
-from kama_claude.core.tools.base import Tool
+# src/claudedock/core/tools/builtin/my_tool.py
+from claudedock.core.tools.base import Tool
 
 class MyTool(Tool):
     name = "my_tool"
@@ -369,13 +369,13 @@ netstat -tulpn | grep 7437
 **日志调试**:
 ```bash
 # 启用详细日志
-KAMA_LOG_LEVEL=DEBUG uv run kama-core
+CLAUDEDOCK_LOG_LEVEL=DEBUG uv run claudedock-core
 ```
 
 **清理状态**:
 ```bash
 # 清理所有运行时数据
-rm -rf runs/ ~/.kama/
+rm -rf runs/ ~/.claudedock/
 ```
 
 ---

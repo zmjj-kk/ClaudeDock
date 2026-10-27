@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kama_claude.core.mcp.client import McpClient
+from claudedock.core.mcp.client import McpClient
 
 
 # 功能：call_tool 应将非 text 内容转为占位符，而非静默丢弃

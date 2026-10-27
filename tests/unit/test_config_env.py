@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.config import get_config
+from claudedock.core.config import get_config
 
 
 def _write_env(path: Path, content: str) -> None:
@@ -15,9 +15,9 @@ def _write_env(path: Path, content: str) -> None:
 # 设计：写 .env 到临时目录并 chdir 进去，清除同名系统环境变量排除干扰，确认 .env 加载路径有效
 def test_dotenv_base_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env_file = tmp_path / ".env"
-    _write_env(env_file, "KAMA_PORT=9999\n")
+    _write_env(env_file, "CLAUDEDOCK_PORT=9999\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KAMA_PORT", raising=False)
+    monkeypatch.delenv("CLAUDEDOCK_PORT", raising=False)
 
     cfg = get_config()
 
@@ -28,9 +28,9 @@ def test_dotenv_base_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 # 设计：.env 写 9999，系统环境变量写 8888，确认最终值为 8888，对应四级优先链的顶层约束
 def test_system_env_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env_file = tmp_path / ".env"
-    _write_env(env_file, "KAMA_PORT=9999\n")
+    _write_env(env_file, "CLAUDEDOCK_PORT=9999\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_PORT", "8888")
+    monkeypatch.setenv("CLAUDEDOCK_PORT", "8888")
 
     cfg = get_config()
 
@@ -41,7 +41,7 @@ def test_system_env_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyP
 # 设计：chdir 到空目录，清除系统环境变量，确认 get_config() 不因 .env 缺失而崩溃，默认端口为 7437
 def test_missing_env_file_silent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KAMA_PORT", raising=False)
+    monkeypatch.delenv("CLAUDEDOCK_PORT", raising=False)
 
     cfg = get_config()
 
@@ -55,10 +55,10 @@ def test_dotenv_cannot_redirect_trusted_config(tmp_path: Path, monkeypatch: pyte
     toml_path.write_bytes(b'[core]\nport = 5555\n')
 
     env_file = tmp_path / ".env"
-    _write_env(env_file, f"KAMA_CONFIG={toml_path}\n")
+    _write_env(env_file, f"CLAUDEDOCK_CONFIG={toml_path}\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KAMA_CONFIG", raising=False)
-    monkeypatch.delenv("KAMA_PORT", raising=False)
+    monkeypatch.delenv("CLAUDEDOCK_CONFIG", raising=False)
+    monkeypatch.delenv("CLAUDEDOCK_PORT", raising=False)
 
     cfg = get_config()
 
@@ -72,28 +72,28 @@ def test_priority_chain_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     # TOML：6000
     # .env：7000
     # 系统环境变量：8000（最高）
-    toml_path = tmp_path / "kama.toml"
+    toml_path = tmp_path / "claudedock.toml"
     toml_path.write_bytes(b'[core]\nport = 6000\n')
 
     env_file = tmp_path / ".env"
-    _write_env(env_file, "KAMA_PORT=7000\n")
+    _write_env(env_file, "CLAUDEDOCK_PORT=7000\n")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_CONFIG", str(toml_path))
-    monkeypatch.setenv("KAMA_PORT", "8000")
+    monkeypatch.setenv("CLAUDEDOCK_CONFIG", str(toml_path))
+    monkeypatch.setenv("CLAUDEDOCK_PORT", "8000")
 
     cfg = get_config()
 
     assert cfg.port == 8000
 
 
-# 功能：验证 KAMA_RAG_RERANK_* 环境变量正确覆盖 RagConfig 的 rerank 字段
+# 功能：验证 CLAUDEDOCK_RAG_RERANK_* 环境变量正确覆盖 RagConfig 的 rerank 字段
 # 设计：一次性设置三个 rerank 环境变量，断言 enabled/model/depth 均被解析并覆盖默认值
 def test_rag_rerank_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_RAG_RERANK_ENABLED", "1")
-    monkeypatch.setenv("KAMA_RAG_RERANK_MODEL", "bge-reranker-large")
-    monkeypatch.setenv("KAMA_RAG_RERANK_DEPTH", "30")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_RERANK_ENABLED", "1")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_RERANK_MODEL", "bge-reranker-large")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_RERANK_DEPTH", "30")
 
     cfg = get_config()
 
@@ -102,22 +102,22 @@ def test_rag_rerank_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert cfg.rag.rerank_depth == 30
 
 
-# 功能：验证 KAMA_RAG_RERANK_DEPTH 为非正整数时硬退出
+# 功能：验证 CLAUDEDOCK_RAG_RERANK_DEPTH 为非正整数时硬退出
 # 设计：设 depth=0（非法），断言 get_config 抛 SystemExit，符合未知/非法键的防御约定
 def test_rag_rerank_depth_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_RAG_RERANK_DEPTH", "0")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_RERANK_DEPTH", "0")
     with pytest.raises(SystemExit):
         get_config()
 
 
-# 功能：验证 KAMA_RAG_QUERY_* 环境变量正确覆盖 RagConfig 的查询增强字段
+# 功能：验证 CLAUDEDOCK_RAG_QUERY_* 环境变量正确覆盖 RagConfig 的查询增强字段
 # 设计：一次性设置三个 query 增强环境变量，断言 enabled/expand_n/depth 均被解析并覆盖默认值
 def test_rag_query_enhance_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_RAG_QUERY_ENHANCE", "1")
-    monkeypatch.setenv("KAMA_RAG_QUERY_EXPAND_N", "5")
-    monkeypatch.setenv("KAMA_RAG_QUERY_DEPTH", "20")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_QUERY_ENHANCE", "1")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_QUERY_EXPAND_N", "5")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_QUERY_DEPTH", "20")
 
     cfg = get_config()
 
@@ -126,10 +126,10 @@ def test_rag_query_enhance_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert cfg.rag.query_depth == 20
 
 
-# 功能：验证 KAMA_RAG_QUERY_EXPAND_N 为非正整数时硬退出
+# 功能：验证 CLAUDEDOCK_RAG_QUERY_EXPAND_N 为非正整数时硬退出
 # 设计：设 expand_n=0（非法），断言 get_config 抛 SystemExit，与其它 RAG 数值键校验一致
 def test_rag_query_expand_n_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KAMA_RAG_QUERY_EXPAND_N", "0")
+    monkeypatch.setenv("CLAUDEDOCK_RAG_QUERY_EXPAND_N", "0")
     with pytest.raises(SystemExit):
         get_config()

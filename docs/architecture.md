@@ -1,27 +1,27 @@
-# KamaClaude 架构与规范
+# ClaudeDock 架构与规范
 
-本文档描述 KamaClaude 的核心设计思路、模块划分、代码目录规范与命名规范，是贡献代码前的必读材料。
+本文档描述 ClaudeDock 的核心设计思路、模块划分、代码目录规范与命名规范，是贡献代码前的必读材料。
 
 ## 核心设计思路
 
-KamaClaude 是一个**双进程**的本地 AI Agent 系统：`kama-core` 是常驻守护进程，`kama` 与 `kama-tui` 是连接它的客户端，三者通过 TCP 上的 JSON-RPC 2.0 NDJSON 通信。
+ClaudeDock 是一个**双进程**的本地 AI Agent 系统：`claudedock-core` 是常驻守护进程，`claudedock` 与 `claudedock-tui` 是连接它的客户端，三者通过 TCP 上的 JSON-RPC 2.0 NDJSON 通信。
 
 ```text
-kama-core (daemon)
+claudedock-core (daemon)
   └─ 监听 127.0.0.1:7437 (TCP)
        ↑ JSON-RPC 2.0 NDJSON
-kama (CLI)   kama-tui (TUI, 主前端)
+claudedock (CLI)   claudedock-tui (TUI, 主前端)
 ```
 
-- **TUI 优先**：`kama-tui` 是主要前端，所有任务管理、可观测性、交互功能都应先为 TUI 设计并验证。`kama` CLI 只用于快速脚本化调试，不是产品面。
+- **TUI 优先**：`claudedock-tui` 是主要前端，所有任务管理、可观测性、交互功能都应先为 TUI 设计并验证。`claudedock` CLI 只用于快速脚本化调试，不是产品面。
 - **类型即契约**：所有 IPC 消息都是 pydantic v2 模型，用 `type` 字段做判别联合（discriminated union）。新增命令或事件，就是在 `bus/commands.py` / `bus/events.py` 里加模型类并扩展联合类型。
-- **五层配置优先级**：内置默认值 → 全局 `~/.kama/config.toml` → 项目本地 `.kama/config.toml` → `.env` → 环境变量，后者覆盖前者。未知配置键会硬退出。
+- **五层配置优先级**：内置默认值 → 全局 `~/.claudedock/config.toml` → 项目本地 `.claudedock/config.toml` → `.env` → 环境变量，后者覆盖前者。未知配置键会硬退出。
 - **事件驱动可观测**：LLM token、工具调用、权限审批、run 起止等都以事件发布到 `EventBus`，TUI 与 trace 文件订阅同一事件流。
 - **权限门控**：破坏性工具（如 bash、写文件）经 `PermissionManager` 审批，支持超时与自动允许/拒绝策略。
 
 ## 模块划分
 
-源码位于 `src/kama_claude/`，运行时逻辑集中在 `core/` 包。
+源码位于 `src/claudedock/`，运行时逻辑集中在 `core/` 包。
 
 | 目录 | 职责 |
 |------|------|
@@ -52,10 +52,10 @@ kama (CLI)   kama-tui (TUI, 主前端)
 ## 代码目录规范
 
 ```text
-src/kama_claude/
+src/claudedock/
   core/        # 守护进程与运行时（上面已列）
-  cli/         # kama 命令行客户端（commands/ 下按子命令拆分）
-  tui/         # kama-tui（textual 框架）
+  cli/         # claudedock 命令行客户端（commands/ 下按子命令拆分）
+  tui/         # claudedock-tui（textual 框架）
   eval/        # 评测相关
 tests/
   unit/        # 纯单元测试（不联网、不启动守护进程）
@@ -69,7 +69,7 @@ docs/
 
 关键约定：
 
-- 源码用 **src 布局**，包根是 `src/kama_claude`。
+- 源码用 **src 布局**，包根是 `src/claudedock`。
 - `WIRE_PROTOCOL.md` 由 `scripts/gen_protocol_doc.py` **生成**，改了 bus 模型后必须重新生成并提交。
 - 规划性设计文档放在仓库外的 `../docs/`（本仓库的兄弟目录），不随代码提交。
 
@@ -108,10 +108,10 @@ uv run ruff check src tests scripts  # lint
 uv run mypy src                      # 类型检查
 uv run pytest tests/unit -v          # 单元测试
 uv run pytest tests/integration -v   # 集成测试
-uv run kama-core                     # 前台运行守护进程
-uv run kama ping                     # 发送 ping
+uv run claudedock-core                     # 前台运行守护进程
+uv run claudedock ping                     # 发送 ping
 ```
 
 ## RAG 知识库
 
-`rag_search` 工具从本地知识库目录（默认 `~/.kama/knowledge`）递归读取 `.md` 与 `.txt` 文档，先按语义边界切片（标题 → 段落 → 句子），再用智谱 `embedding-3` 生成向量做余弦检索；未配置 API key 时回退到零依赖的 TF-IDF。索引向量会落盘缓存，避免重复计费。相关配置见 `[rag]` 段，如 `chunk_size`、`chunk_overlap`、`embedding_dimensions` 等。
+`rag_search` 工具从本地知识库目录（默认 `~/.claudedock/knowledge`）递归读取 `.md` 与 `.txt` 文档，先按语义边界切片（标题 → 段落 → 句子），再用智谱 `embedding-3` 生成向量做余弦检索；未配置 API key 时回退到零依赖的 TF-IDF。索引向量会落盘缓存，避免重复计费。相关配置见 `[rag]` 段，如 `chunk_size`、`chunk_overlap`、`embedding_dimensions` 等。

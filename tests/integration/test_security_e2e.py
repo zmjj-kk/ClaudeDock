@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import ToolCallBlock
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.security.classifier import RiskClassifier
-from kama_claude.core.security.decision_audit import SecurityAudit
-from kama_claude.core.tools.builtin.bash import BashTool
-from kama_claude.core.tools.builtin.write_file import WriteFileTool
-from kama_claude.core.tools.invocation import invoke_tool
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import ToolCallBlock
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.security.classifier import RiskClassifier
+from claudedock.core.security.decision_audit import SecurityAudit
+from claudedock.core.tools.builtin.bash import BashTool
+from claudedock.core.tools.builtin.write_file import WriteFileTool
+from claudedock.core.tools.invocation import invoke_tool
+from claudedock.core.tools.registry import ToolRegistry
 
 
 # 功能：验证 auto 普通编辑实际生效，敏感路径即使分类器 SAFE 也不执行
@@ -79,7 +79,7 @@ async def test_shell_cannot_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyP
 # 功能：验证生产调用图中仅统一网关可以调用 BaseTool.invoke
 # 设计：扫描 AST 的真实调用表达式，防止子 Agent 或后台任务新增直接调用入口
 def test_all_tool_execution_uses_gateway() -> None:
-    root = Path(__file__).resolve().parents[2] / "src/kama_claude"
+    root = Path(__file__).resolve().parents[2] / "src/claudedock"
     direct = []
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text())

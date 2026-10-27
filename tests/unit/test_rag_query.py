@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from kama_claude.core.llm.types import LlmResponse
-from kama_claude.core.rag.index import rrf_fuse
-from kama_claude.core.rag.query import LlmQueryProcessor, optimize_query, parse_query_list
-from kama_claude.core.rag.store import RagStore
+from claudedock.core.llm.types import LlmResponse
+from claudedock.core.rag.index import rrf_fuse
+from claudedock.core.rag.query import LlmQueryProcessor, optimize_query, parse_query_list
+from claudedock.core.rag.store import RagStore
 
 
 # 功能：验证 optimize_query 把连续空白压缩为单个空格并去掉首尾空白

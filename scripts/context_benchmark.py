@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    compact = root / "src/kama_claude/core/compact"
+    compact = root / "src/claudedock/core/compact"
     budget = _load("context_benchmark_budget", compact / "token_budget.py")
     micro = _load("context_benchmark_micro", compact / "microcompact.py")
     fixture = root / "tests/fixtures/context_eval/tasks.json"

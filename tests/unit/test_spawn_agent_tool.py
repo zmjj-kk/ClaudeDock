@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import LlmResponse, UsageStats
-from kama_claude.core.subagent.registry import BackgroundTaskRegistry
-from kama_claude.core.subagent.tool import AgentResultTool, SpawnAgentTool
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import LlmResponse, UsageStats
+from claudedock.core.subagent.registry import BackgroundTaskRegistry
+from claudedock.core.subagent.tool import AgentResultTool, SpawnAgentTool
 
 
 def _make_provider(result_text: str = "child done") -> Any:
@@ -171,7 +171,7 @@ async def test_agent_result_unknown_run_id(tmp_path: Path) -> None:
 # 设计：订阅父 bus 收集所有事件，断言 subagent.started 出现，且 parent_run_id 和 description 正确
 @pytest.mark.asyncio
 async def test_foreground_publishes_started_event(tmp_path: Path) -> None:
-    from kama_claude.core.bus.events import SubagentStartedEvent
+    from claudedock.core.bus.events import SubagentStartedEvent
 
     tool, _, bus = _make_tool(tmp_path)
     events: list[Any] = []
@@ -227,8 +227,8 @@ async def test_foreground_honors_profile_model(tmp_path: Path) -> None:
 # 功能：inherit_tools 应仅注册角色 allowed_tools 里声明的工具
 # 设计：注入两个自定义工具，profile 只允许其中一个，检查子 registry 含与不含
 def test_inherit_tools_respect_role_allowed(tmp_path: Path) -> None:
-    from kama_claude.core.agents.loader import AgentProfile
-    from kama_claude.core.tools.base import BaseTool, ToolResult
+    from claudedock.core.agents.loader import AgentProfile
+    from claudedock.core.tools.base import BaseTool, ToolResult
 
     class _FakeTool(BaseTool):
         name = "fake_rag"
@@ -258,7 +258,7 @@ def test_inherit_tools_respect_role_allowed(tmp_path: Path) -> None:
 # 设计：手动注册一个已完成 task + status="failed" 的 context，断言错误内容含状态与原因
 @pytest.mark.asyncio
 async def test_agent_result_surfaces_failure_status() -> None:
-    from kama_claude.core.context import ExecutionContext
+    from claudedock.core.context import ExecutionContext
 
     registry = BackgroundTaskRegistry()
     context = ExecutionContext(run_id="r1", goal="g", max_steps=1)
@@ -281,7 +281,7 @@ async def test_agent_result_surfaces_failure_status() -> None:
 # 设计：注册完成的 task，调用 agent_result 后断言 registry.get 返回 None
 @pytest.mark.asyncio
 async def test_agent_result_removes_done_task() -> None:
-    from kama_claude.core.context import ExecutionContext
+    from claudedock.core.context import ExecutionContext
 
     registry = BackgroundTaskRegistry()
     context = ExecutionContext(run_id="r1", goal="g", max_steps=1)

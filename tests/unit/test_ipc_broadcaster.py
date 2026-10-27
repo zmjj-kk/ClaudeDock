@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kama_claude.core.bus.events import RunStartedEvent, StepStartedEvent
-from kama_claude.core.transport.ipc_broadcaster import IpcEventBroadcaster
+from claudedock.core.bus.events import RunStartedEvent, StepStartedEvent
+from claudedock.core.transport.ipc_broadcaster import IpcEventBroadcaster
 
 
 # 每个用例结束后关闭发送任务，验证生命周期并避免跨测试泄漏

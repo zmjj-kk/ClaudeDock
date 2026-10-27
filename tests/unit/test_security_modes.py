@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.security.approval import ApprovalScope, ApprovalTokens
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.security.approval import ApprovalScope, ApprovalTokens
 
 
 # 功能：验证审批 token 对所有身份、参数、影响与策略字段精确绑定且一次性消费

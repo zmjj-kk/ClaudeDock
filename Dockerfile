@@ -16,26 +16,26 @@ COPY src/ ./src/
 RUN if [ "$OFFLINE_BUILD" = "1" ]; then \
       uv pip install --python /app/.venv/bin/python --no-deps --no-build-isolation .; \
     else uv sync --frozen --no-dev --no-editable; fi \
-    && .venv/bin/kama --version
+    && .venv/bin/claudedock --version
 
 FROM public.ecr.aws/docker/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update \
     && apt-get -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends bubblewrap util-linux \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 10001 kama
+    && useradd --create-home --uid 10001 claudedock
 WORKDIR /app/workspace
 COPY --from=builder /app/.venv /app/.venv
-RUN mkdir -p /app/runs /app/workspace /home/kama/.kama \
-    && chown -R kama:kama /app/runs /app/workspace /home/kama/.kama
+RUN mkdir -p /app/runs /app/workspace /home/claudedock/.claudedock \
+    && chown -R claudedock:claudedock /app/runs /app/workspace /home/claudedock/.claudedock
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    KAMA_HOST=127.0.0.1 \
-    KAMA_PORT=7437 \
-    KAMA_LOG_LEVEL=INFO \
-    KAMA_LOG_FORMAT=json
-USER kama
+    CLAUDEDOCK_HOST=127.0.0.1 \
+    CLAUDEDOCK_PORT=7437 \
+    CLAUDEDOCK_LOG_LEVEL=INFO \
+    CLAUDEDOCK_LOG_FORMAT=json
+USER claudedock
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD ["python", "-m", "kama_claude.core.transport.healthcheck"]
+    CMD ["python", "-m", "claudedock.core.transport.healthcheck"]
 EXPOSE 7437
-CMD ["kama-core"]
+CMD ["claudedock-core"]

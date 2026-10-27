@@ -7,7 +7,7 @@
 ## 基线与提交范围
 
 - 工作前有大量 modified/untracked 文件。未重置、清理或覆盖用户成果。
-- 私有基线位于 WSL 的 `/tmp/kama-security-baseline-20261015/`：原始 tracked.patch、status.txt、workspace.tar.gz 和基线测试日志，目录与文件禁止其他用户访问；该快照含本地配置，不能上传。
+- 私有基线位于 WSL 的 `/tmp/claudedock-security-baseline-20261015/`：原始 tracked.patch、status.txt、workspace.tar.gz 和基线测试日志，目录与文件禁止其他用户访问；该快照含本地配置，不能上传。
 - 原始测试因 tools 包 eager import 与 tool_result_store 循环依赖而收集失败。修复后基线为 568 passed / 2 failed；两项是 LLM 事件顺序和已迁移投影存储的旧故障注入断言。
 - 安全实现建立在已有上下文、生产恢复、监控、权限与存储修改之上，提交包含这些已经通过回归的依赖。密钥、运行数据、私有快照、wheel 下载与缓存均不提交。
 
@@ -53,8 +53,8 @@
 ## 迁移与运行
 
 1. 备份当前工作区与全局配置。部署时 daemon 与 TUI/CLI 必须使用同一版本。
-2. 将 permission/MCP 授权从项目 `.kama/config.toml` 移到 `~/.kama/config.toml`，参考 [配置样例](security-config.example.toml)。全局配置与策略文件禁止软链接及组/其他用户写入。
-3. `.env` 仍可配置普通运行参数，但不能设置 KAMA_CONFIG、KAMA_PERMISSION_MODE 或独立分类凭据；这些值必须来自宿主启动环境。
+2. 将 permission/MCP 授权从项目 `.claudedock/config.toml` 移到 `~/.claudedock/config.toml`，参考 [配置样例](security-config.example.toml)。全局配置与策略文件禁止软链接及组/其他用户写入。
+3. `.env` 仍可配置普通运行参数，但不能设置 CLAUDEDOCK_CONFIG、CLAUDEDOCK_PERMISSION_MODE 或独立分类凭据；这些值必须来自宿主启动环境。
 4. 新的显式规则使用 policy.toml 的 `[[rules]]`，字段为 source 隐含于文件来源、tool、action 和可选 argument_hash。项目/session allow 不授予新权限；全局/user allow 必须绑定精确工具名与参数 hash。
 5. 初始使用 default；只读分析可用 plan。安装并实机验收 bubblewrap/util-linux 后再启用命令执行。默认 Shell 只读；文本修改通过受控 write_file 进行。
 6. MCP 不再以发现即授信。只在全局配置中显式授权具名工具能力；升级后旧授权不跨服务端连接、schema 或策略变化复用。

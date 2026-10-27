@@ -5,17 +5,17 @@ from pathlib import Path
 
 import httpx
 
-from kama_claude.core.rag.chunk import (
+from claudedock.core.rag.chunk import (
     _split_chunks,
     parse_frontmatter,
     split_semantic,
     split_with_context,
     strip_frontmatter,
 )
-from kama_claude.core.rag.index import Bm25Index, HybridIndex, ZhipuEmbeddingIndex, _tokenize
-from kama_claude.core.rag.rerank import Reranker
-from kama_claude.core.rag.store import RagStore
-from kama_claude.core.rag.tool import RagSearchTool
+from claudedock.core.rag.index import Bm25Index, HybridIndex, ZhipuEmbeddingIndex, _tokenize
+from claudedock.core.rag.rerank import Reranker
+from claudedock.core.rag.store import RagStore
+from claudedock.core.rag.tool import RagSearchTool
 
 
 # 固定偏好的 fake reranker：命中偏好词给 1.0，否则 0.0，用于验证精排重排
@@ -62,8 +62,8 @@ def test_split_chunks_short_and_empty() -> None:
 # 功能：验证语义切片把标题与紧随的短段落合并进同一块
 # 设计：标题与段落各远小于 size，断言边界落在标题/段落之间而非硬切中间
 def test_split_semantic_heading_merges_paragraph() -> None:
-    chunks = split_semantic("# 部署\n\n运行 kama-core。", size=100, overlap=0)
-    assert chunks == ["# 部署\n运行 kama-core。"]
+    chunks = split_semantic("# 部署\n\n运行 claudedock-core。", size=100, overlap=0)
+    assert chunks == ["# 部署\n运行 claudedock-core。"]
 
 
 # 功能：验证超长段落按句末标点切分，而非在句子中间硬切
@@ -456,7 +456,7 @@ async def test_rag_search_tool_description_has_manifest(tmp_path: Path) -> None:
 # 功能：验证 ExecutionContext 系统提示注入 RAG 检索指令与主题清单（层 1 + 层 2）
 # 设计：设置 rag_instruction 与 rag_manifest 后调用 system_prompt，断言两者都出现在输出中
 def test_context_system_prompt_injects_rag() -> None:
-    from kama_claude.core.context import ExecutionContext
+    from claudedock.core.context import ExecutionContext
 
     ctx = ExecutionContext(
         run_id="r",
@@ -475,7 +475,7 @@ def test_context_system_prompt_injects_rag() -> None:
 # 功能：验证 frontmatter 解析出 key: value 元数据，并按标量类型推断；无 frontmatter 返回空
 # 设计：字符串/整数/浮点/布尔四类值断言类型被正确推断，普通文档返回空、非法行被忽略
 def test_parse_frontmatter() -> None:
-    from kama_claude.core.rag.chunk import parse_frontmatter
+    from claudedock.core.rag.chunk import parse_frontmatter
 
     text = "---\ndepartment: 研发\nupdated: 2026-09\ncount: 10\nratio: 0.5\nenabled: true\n---\n# 正文\n"
     assert parse_frontmatter(text) == {

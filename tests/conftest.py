@@ -26,18 +26,18 @@ async def running_daemon(
     free_port: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncGenerator[subprocess.Popen[bytes], None]:
     token = secrets.token_urlsafe(32)
-    monkeypatch.setenv("KAMA_IPC_TOKEN", token)
+    monkeypatch.setenv("CLAUDEDOCK_IPC_TOKEN", token)
     env = os.environ.copy()
-    env["KAMA_SESSIONS_DIR"] = str(tmp_path / "sessions")
-    env["KAMA_RAG_ENABLED"] = "0"
-    env["KAMA_MEMORY_ENABLED"] = "0"
-    env["KAMA_TRACE_ENABLED"] = "0"
+    env["CLAUDEDOCK_SESSIONS_DIR"] = str(tmp_path / "sessions")
+    env["CLAUDEDOCK_RAG_ENABLED"] = "0"
+    env["CLAUDEDOCK_MEMORY_ENABLED"] = "0"
+    env["CLAUDEDOCK_TRACE_ENABLED"] = "0"
     env["ANTHROPIC_API_KEY"] = ""
-    env["KAMA_PORT"] = str(free_port)
-    env["KAMA_LOG_FILE"] = ""
-    env["KAMA_LOG_LEVEL"] = "WARNING"
+    env["CLAUDEDOCK_PORT"] = str(free_port)
+    env["CLAUDEDOCK_LOG_FILE"] = ""
+    env["CLAUDEDOCK_LOG_LEVEL"] = "WARNING"
 
-    proc = subprocess.Popen([sys.executable, "-m", "kama_claude.core"], env=env)
+    proc = subprocess.Popen([sys.executable, "-m", "claudedock.core"], env=env)
 
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.transport.auth import read_token
+from claudedock.core.transport.auth import read_token
 
 
 # 发送一条 JSON-RPC 请求并返回响应对象
@@ -75,16 +75,16 @@ async def recovery_daemon(
     )
     _seed_session(tmp_path, "sess-closed", "closed", [])
 
-    monkeypatch.setenv("KAMA_IPC_TOKEN", secrets.token_urlsafe(32))
+    monkeypatch.setenv("CLAUDEDOCK_IPC_TOKEN", secrets.token_urlsafe(32))
     env = os.environ.copy()
-    env["KAMA_PORT"] = str(free_port)
-    env["KAMA_SESSIONS_DIR"] = str(tmp_path)
-    env["KAMA_TRACE_ENABLED"] = "0"
-    env["KAMA_LOG_FILE"] = ""
-    env["KAMA_LOG_LEVEL"] = "WARNING"
+    env["CLAUDEDOCK_PORT"] = str(free_port)
+    env["CLAUDEDOCK_SESSIONS_DIR"] = str(tmp_path)
+    env["CLAUDEDOCK_TRACE_ENABLED"] = "0"
+    env["CLAUDEDOCK_LOG_FILE"] = ""
+    env["CLAUDEDOCK_LOG_LEVEL"] = "WARNING"
     env["ANTHROPIC_API_KEY"] = "dummy"  # 仅用于通过启动时 provider 构造，不实际调用 LLM
 
-    proc = subprocess.Popen([sys.executable, "-m", "kama_claude.core"], env=env)
+    proc = subprocess.Popen([sys.executable, "-m", "claudedock.core"], env=env)
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:

@@ -10,12 +10,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from kama_claude.core.config import KamaConfig
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.types import LlmResponse, UsageStats
-from kama_claude.core.runner import AgentRunner
-from kama_claude.core.transport.socket_client import SocketClient
-from kama_claude.core.transport.socket_server import SocketServer
+from claudedock.core.config import ClaudeDockConfig
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.types import LlmResponse, UsageStats
+from claudedock.core.runner import AgentRunner
+from claudedock.core.transport.socket_client import SocketClient
+from claudedock.core.transport.socket_server import SocketServer
 
 
 class OfflineProvider:
@@ -78,12 +78,12 @@ async def benchmark(runs: int, clients: int) -> dict[str, object]:
     ipc_seconds = time.perf_counter() - start
     assert not server._connections and not server._requests
     bus = EventBus()
-    config = KamaConfig()
+    config = ClaudeDockConfig()
     config.skill.enabled = False
     fd_before = len(os.listdir("/proc/self/fd"))
     run_samples: list[float] = []
     start = time.perf_counter()
-    with tempfile.TemporaryDirectory(prefix="kama-stability-") as directory:
+    with tempfile.TemporaryDirectory(prefix="claudedock-stability-") as directory:
         runner = AgentRunner(config, bus=bus, provider=OfflineProvider(), runs_dir=Path(directory))
         for index in range(runs):
             before = time.perf_counter()

@@ -4,7 +4,7 @@ import asyncio
 import json
 import subprocess
 
-from kama_claude.core.transport.auth import read_token
+from claudedock.core.transport.auth import read_token
 
 
 # 发送一条 JSON-RPC 请求并返回响应对象

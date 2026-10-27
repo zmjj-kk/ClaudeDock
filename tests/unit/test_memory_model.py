@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from kama_claude.core.memory.model import MemoryEntry, new_memory_id
+from claudedock.core.memory.model import MemoryEntry, new_memory_id
 
 
 # 功能：验证 new_memory_id 由内容哈希派生，稳定且带 mem_ 前缀与固定长度

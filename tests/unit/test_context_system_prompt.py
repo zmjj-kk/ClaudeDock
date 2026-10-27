@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from kama_claude.core.context import ExecutionContext
+from claudedock.core.context import ExecutionContext
 
 
 # 功能：验证仓库、记忆与会话资料均作为带来源的用户数据发送

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kama_claude.core.agents.loader import AgentProfileLoader
+from claudedock.core.agents.loader import AgentProfileLoader
 
 
 # 功能：内建 planner 角色配置应能被 AgentProfileLoader 加载
@@ -59,9 +59,9 @@ model = "claude-sonnet-4-6"
 
 
 # 功能：项目本地角色配置应覆盖内建同名配置
-# 设计：在 .kama/agents/ 中写入同名 TOML，monkeypatch cwd，断言加载到本地版本
+# 设计：在 .claudedock/agents/ 中写入同名 TOML，monkeypatch cwd，断言加载到本地版本
 def test_project_overrides_builtin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    local_agents = tmp_path / ".kama" / "agents"
+    local_agents = tmp_path / ".claudedock" / "agents"
     local_agents.mkdir(parents=True)
     (local_agents / "planner.toml").write_text(
         '[agent]\ndescription = "local planner"\nsystem_prompt = "local prompt"\n'
@@ -77,11 +77,11 @@ def test_project_overrides_builtin(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 # 功能：高优先级路径解析失败时应回退到内建配置，而非直接返回 None
-# 设计：本地 .kama/agents/planner.toml 写入非法 TOML，断言 load 仍返回内建 planner
+# 设计：本地 .claudedock/agents/planner.toml 写入非法 TOML，断言 load 仍返回内建 planner
 def test_load_falls_back_on_parse_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    local = tmp_path / ".kama" / "agents"
+    local = tmp_path / ".claudedock" / "agents"
     local.mkdir(parents=True)
     (local / "planner.toml").write_text("this is [ not valid toml", encoding="utf-8")
     # 隔离用户全局路径，确保回退目标确定为内建配置

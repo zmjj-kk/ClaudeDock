@@ -3,16 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from kama_claude.core.compact.token_budget import ModelCapacity
-from kama_claude.core.compact.tool_result_store import ReadToolResultTool, ToolResultStore
-from kama_claude.core.config import CompactionConfig
-from kama_claude.core.context import ExecutionContext
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.llm.context_errors import ContextWindowExceeded
-from kama_claude.core.llm.types import LlmResponse, ToolCallBlock
-from kama_claude.core.loop import AgentLoop
-from kama_claude.core.tools.base import BaseTool, ToolResult
-from kama_claude.core.tools.registry import ToolRegistry
+from claudedock.core.compact.token_budget import ModelCapacity
+from claudedock.core.compact.tool_result_store import ReadToolResultTool, ToolResultStore
+from claudedock.core.config import CompactionConfig
+from claudedock.core.context import ExecutionContext
+from claudedock.core.events.bus import EventBus
+from claudedock.core.llm.context_errors import ContextWindowExceeded
+from claudedock.core.llm.types import LlmResponse, ToolCallBlock
+from claudedock.core.loop import AgentLoop
+from claudedock.core.tools.base import BaseTool, ToolResult
+from claudedock.core.tools.registry import ToolRegistry
 from tests.security_helpers import approving_manager
 
 

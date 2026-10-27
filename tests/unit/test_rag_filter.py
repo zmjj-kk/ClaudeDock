@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from kama_claude.core.rag.filter import (
+from claudedock.core.rag.filter import (
     canonical,
     canonical_values,
     is_numeric_range,

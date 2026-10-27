@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from kama_claude.eval.rag_metrics import (
+from claudedock.eval.rag_metrics import (
     empty_rate,
     evaluate_retrieval,
     filter_respect_rate,

@@ -1,4 +1,4 @@
-# KamaClaude 运行时埋点设计（Runtime Instrumentation）
+# ClaudeDock 运行时埋点设计（Runtime Instrumentation）
 
 > 定位：APM 设计文档（`apm_design.md`）的**运行时实现篇**。核心思想——不靠离线推导，而是在执行链里**原生发射 Span**，让 Span 成为性能数据的权威来源；离线推导降级为"回填历史 `events.jsonl`"的兼容工具。
 > 配套：`docs/observability/apm_design.md`（Span 模型与六类瓶颈）、`docs/evaluation/`（评测体系）。
@@ -18,7 +18,7 @@
 
 ### 1.1 Span 模型
 
-沿用 `apm_design.md` §2 的 `Span` 模型（`span_id/trace_id/parent_span_id/name/kind/start_ts/end_ts/duration_ms/status/parallel/attributes/events`）。新增文件 `src/kama_claude/observability/span.py`。
+沿用 `apm_design.md` §2 的 `Span` 模型（`span_id/trace_id/parent_span_id/name/kind/start_ts/end_ts/duration_ms/status/parallel/attributes/events`）。新增文件 `src/claudedock/observability/span.py`。
 
 ### 1.2 SpanWriter（落盘）
 
@@ -40,7 +40,7 @@ class SpanWriter:
 新增 `observability/tracer.py`，核心是一个 `contextvars.ContextVar`：
 
 ```python
-_current: ContextVar["SpanTracer | None"] = ContextVar("kama_span_tracer", default=None)
+_current: ContextVar["SpanTracer | None"] = ContextVar("claudedock_span_tracer", default=None)
 
 def set_tracer(t: SpanTracer | None) -> Token: ...        # 在 run 边界 set，返回 reset token
 def get_tracer() -> SpanTracer | None: ...                # 叶子埋点取用；无 tracer 时静默 no-op
@@ -87,7 +87,7 @@ class SpanTracer:
 在 `run_and_capture` 的 `RunStartedEvent` 发布处，同时开启 run Span。**须新增两个维度字段**（否则 Step 1 的"按业务切分"做不完整）：
 
 - `task_type`：对 `goal` 做轻量分类（文件操作 / 代码生成 / 多步编排 / 检索问答 …）。首版用规则/关键词打标，后续可换小模型分类。
-- `version`：发布版本，从构建产物或 `KAMA_VERSION` 环境变量注入。
+- `version`：发布版本，从构建产物或 `CLAUDEDOCK_VERSION` 环境变量注入。
 
 ### 3.2 LLM Span + 三段分解（#3）★最关键的埋点
 
@@ -127,7 +127,7 @@ if permission_manager is not None:
         pass                                  # 等待时长独立成子 Span
 ```
 
-- 效果：工具 Span 的 `duration_ms` 只含真实执行，等待时长单独可见。这是"排队"类瓶颈在 KamaClaude 里的权威度量。
+- 效果：工具 Span 的 `duration_ms` 只含真实执行，等待时长单独可见。这是"排队"类瓶颈在 ClaudeDock 里的权威度量。
 
 ### 3.4 重试尝试子 Span（#6）
 
@@ -180,7 +180,7 @@ spans.jsonl（运行时产出，每行一个已完成的 Span）
 | `daemon.jsonl` (Trace) | IPC / LLM I/O 追踪 | `TracingProvider` 的 `api_response.latency_ms` 与 llm Span 有重叠；**Span 成为延迟权威来源**，Trace 保留用于 IPC 层排查与向后兼容 |
 | `spans.jsonl`（新增） | 性能结构（父子/并行/维度） | 权威延迟来源 |
 
-> 迁移策略：llm Span 先落，`TracingProvider` 暂留（不破坏 `kama trace`），待指标/瀑布图消费方稳定后，再把 Trace 的延迟分析统一迁到 Span。
+> 迁移策略：llm Span 先落，`TracingProvider` 暂留（不破坏 `claudedock trace`），待指标/瀑布图消费方稳定后，再把 Trace 的延迟分析统一迁到 Span。
 
 ---
 
@@ -211,6 +211,6 @@ spans.jsonl（运行时产出，每行一个已完成的 Span）
 
 1. **Span 独立落盘，不进 EventBus**：用独立 `SpanWriter` 写 `spans.jsonl`，保持事件流纯净、Span 与事件职责分离。
 2. **`task_type` 首版规则打标**：对 `goal` 做关键词/规则分类（文件操作 / 代码生成 / 多步编排 / 检索问答），零 LLM 成本、`run.started` 无需等 LLM；后续可换小模型分类。
-3. **`version` 构建注入**：从构建产物或 `KAMA_VERSION` 环境变量注入 root Span。
+3. **`version` 构建注入**：从构建产物或 `CLAUDEDOCK_VERSION` 环境变量注入 root Span。
 
 > 对 §1.2 的细化：SpanWriter 只管落盘、不订阅 EventBus；如需 TUI 实时渲染 Span，另加一个只读订阅器消费 `spans.jsonl`（不反向污染事件流）。

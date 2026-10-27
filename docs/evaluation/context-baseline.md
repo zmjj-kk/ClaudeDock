@@ -23,7 +23,7 @@ results.json 的 ruff=1 对应这些新模块的排版错误，
 不能冒充原工作树已有缺陷。该轮 mypy=0、pytest=0、protocol=0。
 后续这些排版错误已经修复。
 
-原始日志位于 /tmp/kamaclaude-context-baseline/：
+原始日志位于 /tmp/claudedock-context-baseline/：
 preexisting.patch、ruff.txt、mypy.txt、pytest.txt、protocol.txt、results.json。
 临时目录不是长期备份，且 patch 不是完整未跟踪文件快照。
 没有宣称完成真实生产状态备份。

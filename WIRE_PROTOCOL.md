@@ -4,13 +4,13 @@
 
 ## Transport
 
-- TCP loopback `127.0.0.1:7437` (override via `KAMA_HOST` / `KAMA_PORT`)
+- TCP loopback `127.0.0.1:7437` (override via `CLAUDEDOCK_HOST` / `CLAUDEDOCK_PORT`)
 - Each message is one `\n`-terminated JSON line (NDJSON)
 - Commands use JSON-RPC 2.0 (client → server); Events use `kind=event` envelope (server → client)
 
 ## Authentication
 
-All requests must include `params._auth_token`. Local clients read a user-owned 0600 token file; remote clients must set `KAMA_IPC_TOKEN`. The token is removed before command validation and never included in traces. Unauthorized requests return -32001. Non-loopback listeners require explicit remote configuration and a TLS proxy or a private network boundary.
+All requests must include `params._auth_token`. Local clients read a user-owned 0600 token file; remote clients must set `CLAUDEDOCK_IPC_TOKEN`. The token is removed before command validation and never included in traces. Unauthorized requests return -32001. Non-loopback listeners require explicit remote configuration and a TLS proxy or a private network boundary.
 
 ## Commands
 
@@ -1613,7 +1613,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
   "type": "log.line",
   "run_id": "20260516-100000-abc123",
   "level": "INFO",
-  "source": "kama_claude.core.loop",
+  "source": "claudedock.core.loop",
   "message": "step 1 started",
   "ts": "2026-05-16T10:00:00.001Z"
 }
@@ -3208,6 +3208,201 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "ts"
   ],
   "title": "SubagentStartedEvent",
+  "type": "object"
+}
+```
+
+### ToolBatchFinishedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `batch_id` | `string` | yes |
+| `call_count` | `integer` | yes |
+| `outcome` | `string` | yes |
+| `elapsed_ms` | `integer` | yes |
+| `peak_in_flight` | `integer` | yes |
+| `peak_executing` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.batch_finished",
+      "default": "tool.batch_finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "batch_id": {
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "call_count": {
+      "title": "Call Count",
+      "type": "integer"
+    },
+    "outcome": {
+      "title": "Outcome",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "peak_in_flight": {
+      "title": "Peak In Flight",
+      "type": "integer"
+    },
+    "peak_executing": {
+      "title": "Peak Executing",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "batch_id",
+    "call_count",
+    "outcome",
+    "elapsed_ms",
+    "peak_in_flight",
+    "peak_executing",
+    "ts"
+  ],
+  "title": "ToolBatchFinishedEvent",
+  "type": "object"
+}
+```
+
+### ToolBatchPlannedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `batch_id` | `string` | yes |
+| `call_count` | `integer` | yes |
+| `theoretical_parallelism` | `integer` | yes |
+| `mode` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.batch_planned",
+      "default": "tool.batch_planned",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "batch_id": {
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "call_count": {
+      "title": "Call Count",
+      "type": "integer"
+    },
+    "theoretical_parallelism": {
+      "title": "Theoretical Parallelism",
+      "type": "integer"
+    },
+    "mode": {
+      "title": "Mode",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "batch_id",
+    "call_count",
+    "theoretical_parallelism",
+    "mode",
+    "ts"
+  ],
+  "title": "ToolBatchPlannedEvent",
+  "type": "object"
+}
+```
+
+### ToolBatchStartedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `batch_id` | `string` | yes |
+| `call_count` | `integer` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.batch_started",
+      "default": "tool.batch_started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "batch_id": {
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "call_count": {
+      "title": "Call Count",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "batch_id",
+    "call_count",
+    "ts"
+  ],
+  "title": "ToolBatchStartedEvent",
   "type": "object"
 }
 ```

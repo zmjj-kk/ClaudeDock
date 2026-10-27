@@ -41,7 +41,7 @@ def backup(source: Path, target: Path) -> None:
             stack.callback(os.close, fd)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         target.parent.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=".kama-backup-", dir=target.parent))
+        staging = Path(tempfile.mkdtemp(prefix=".claudedock-backup-", dir=target.parent))
         stack.callback(shutil.rmtree, staging, True)
         files = {}
         for path in source.rglob("*"):

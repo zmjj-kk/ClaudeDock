@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from kama_claude.core.events.bus import EventBus
-from kama_claude.core.permissions.manager import PermissionManager
-from kama_claude.core.tools.invocation import invoke_tool as production_invoke
+from claudedock.core.events.bus import EventBus
+from claudedock.core.permissions.manager import PermissionManager
+from claudedock.core.tools.invocation import invoke_tool as production_invoke
 
 
 # 在执行器单测中模拟真实人工批准，仍经过完整安全网关和 token 校验

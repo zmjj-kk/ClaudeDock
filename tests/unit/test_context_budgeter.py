@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from kama_claude.core.compact.token_budget import ModelCapacity, check_budget, estimate_tokens
-from kama_claude.core.config import CompactionConfig
-from kama_claude.core.llm.context_errors import is_context_error
+from claudedock.core.compact.token_budget import ModelCapacity, check_budget, estimate_tokens
+from claudedock.core.config import CompactionConfig
+from claudedock.core.llm.context_errors import is_context_error
 
 
 # 功能：验证工具模式与系统提示全部计入窗口，输出预留独立扣减

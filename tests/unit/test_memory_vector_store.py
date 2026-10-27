@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from kama_claude.core.memory.model import MemoryEntry
-from kama_claude.core.memory.vector_store import MemoryVectorStore
-from kama_claude.core.rag.index import Bm25Index
+from claudedock.core.memory.model import MemoryEntry
+from claudedock.core.memory.vector_store import MemoryVectorStore
+from claudedock.core.rag.index import Bm25Index
 
 
 # 构建零依赖 BM25 后端的向量层，供检索类测试复用
@@ -82,7 +82,7 @@ async def test_search_empty_query() -> None:
 # 功能：验证 build 对内容未变的条目复用分块缓存，不重复 split_semantic
 # 设计：monkeypatch split_semantic 计数，同内容二次 build 后调用次数不变
 async def test_build_reuses_cached_chunks(monkeypatch) -> None:
-    import kama_claude.core.memory.vector_store as vs
+    import claudedock.core.memory.vector_store as vs
 
     calls: list[str] = []
     orig = vs.split_semantic

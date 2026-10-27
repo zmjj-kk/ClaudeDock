@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from kama_claude.tui.app import KamaTuiApp
+from claudedock.tui.app import ClaudeDockTuiApp
 
 
 # 功能：验证上下文查看通过真实 TUI 调用认证 IPC，并渲染笔记与上下文事件
 # 设计：仅替换连接客户端，使用 Textual 运行环境检查新视图未退化为 CLI 输出
 async def test_context_and_notes_view_in_tui(monkeypatch) -> None:
-    app = KamaTuiApp("localhost", 1)
+    app = ClaudeDockTuiApp("localhost", 1)
     monkeypatch.setattr(app, "_socket_loop", AsyncMock())
     client = AsyncMock()
     client.send_command.return_value = {

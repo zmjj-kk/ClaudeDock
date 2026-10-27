@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from kama_claude.core.compact.microcompact import microcompact, recent_boundary, validate_messages
+from claudedock.core.compact.microcompact import microcompact, recent_boundary, validate_messages
 
 
 # 功能：验证多工具组与签名完整保留，仅清理旧可恢复结果

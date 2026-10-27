@@ -64,5 +64,5 @@ repos:
         name: 检查 WIRE_PROTOCOL.md 同步
         entry: uv run python scripts/gen_protocol_doc.py --check
         language: system
-        files: ^src/kama_claude/core/bus/(commands|events|envelope)\.py$
+        files: ^src/claudedock/core/bus/(commands|events|envelope)\.py$
         pass_filenames: false
